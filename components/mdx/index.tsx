@@ -1,4 +1,5 @@
 import { isValidElement, type ComponentPropsWithoutRef } from "react";
+import { Diagram } from "../diagrams";
 import { Callout } from "./callout";
 import { Details, Result, Ui } from "./misc";
 import { Pre } from "./pre";
@@ -77,6 +78,7 @@ export const mdxComponents = {
   pre: Pre,
   Var,
   Callout,
+  Diagram,
   Step,
   Tabs,
   Tab,

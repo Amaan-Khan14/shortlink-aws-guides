@@ -1,47 +1,11 @@
 ---
 title: Start here
-description: What you will build, what it costs, and what to prepare.
-minutes: 10
+description: What you will build.
+minutes: 5
 ---
 
-## Component test
+<Diagram name="architecture" />
 
-<Callout type="problem" title="Do not use the original repo">
-Fork it.
-</Callout>
+<Diagram name="pipeline-api" />
 
-<Step title="Create the VPC">
-Open <Ui>VPC → Your VPCs → Create VPC</Ui> and use:
-
-```bash title="Install" env="laptop"
-aws sts get-caller-identity --region <AWS_REGION>
-```
-
-<Result>A VPC with ID `vpc-...`</Result>
-</Step>
-
-<Step title="Create the subnets">
-Next.
-
-- [ ] Task one
-- [ ] Task two
-</Step>
-
-<Tabs>
-<Tab label="macOS / Linux">
-
-```bash
-sed -i.bak 's/a/b/' file
-```
-
-</Tab>
-<Tab label="Windows">
-
-Use PowerShell.
-
-</Tab>
-</Tabs>
-
-<Details title="It did not work">
-Check this.
-</Details>
+<Diagram name="pipeline-full" />
