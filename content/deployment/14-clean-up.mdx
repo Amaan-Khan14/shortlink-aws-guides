@@ -1,0 +1,92 @@
+---
+title: Clean up
+description: Delete everything in the right order so you stop paying, and check that nothing was left behind.
+minutes: 20
+---
+
+AWS bills by the hour for the NAT gateway, the load balancer, the database and the server, even if nobody uses them. When you are done, delete everything. Order matters: many resources cannot be deleted while something else still uses them.
+
+<Callout type="danger" title="This permanently deletes your data">
+Deleting the database removes all links and analytics, and you will choose to skip the final snapshot. Only do this when you are certain you are finished. You can rebuild the whole thing from these guides.
+</Callout>
+
+<Callout type="note" title="Did you do the CI/CD guides?">
+Delete the CI/CD resources **first** (the last section on this page), because the pipeline and deployment group point at the server and the buckets you are about to delete.
+</Callout>
+
+## Delete the infrastructure
+
+<Step title="Delete the load balancer, then the target group">
+<Ui>EC2 → Load Balancers → shortlink-alb → Actions → Delete load balancer</Ui>. Type `confirm`. Wait until it disappears from the list, then <Ui>EC2 → Target Groups → shortlink-app-tg → Actions → Delete</Ui>.
+</Step>
+
+<Step title="Terminate the server">
+<Ui>EC2 → Instances → shortlink-api → Instance state → Terminate (delete) instance</Ui>. Wait for **Terminated**.
+</Step>
+
+<Step title="Delete the database">
+<Ui>RDS → Databases → shortlink-db → Actions → Delete</Ui>.
+
+- Untick **Create final snapshot**.
+- Untick **Retain automated backups**.
+- Tick the acknowledgement and type `delete me`.
+
+Wait until the database is gone (5 to 10 minutes). Then delete the subnet group: <Ui>RDS → Subnet groups → shortlink-db-subnets → Delete</Ui>.
+</Step>
+
+<Step title="Delete the NAT gateway and release its Elastic IP">
+<Ui>VPC → NAT gateways → select it → Actions → Delete NAT gateway</Ui>, type `delete`, and wait until **State** is *Deleted*.
+
+Then open <Ui>EC2 → Elastic IPs</Ui>. The NAT gateway's address is **not** released automatically, and an unattached Elastic IP is billed. Select it and choose <Ui>Actions → Release Elastic IP addresses</Ui>.
+</Step>
+
+<Step title="Delete the endpoint and the security groups">
+<Ui>VPC → Endpoints → select the S3 endpoint → Actions → Delete VPC endpoints</Ui>.
+
+Then <Ui>VPC → Security groups</Ui>. Delete them in this order, because each one is referenced by the next:
+
+1. `shortlink-db-sg`
+2. `shortlink-api-sg`
+3. `shortlink-alb-sg`
+</Step>
+
+<Step title="Delete the VPC">
+<Ui>VPC → Your VPCs → shortlink-vpc → Actions → Delete VPC</Ui>. The dialog lists the subnets, route tables and internet gateway that go with it. Confirm with `delete`.
+</Step>
+
+<Step title="Empty and delete the website bucket">
+<Ui>S3 → Buckets → your website bucket → Empty</Ui>, confirm. Because versioning is on, **Empty** removes all versions. Then <Ui>Delete</Ui> the bucket and type its name.
+</Step>
+
+<Step title="Delete the IAM role">
+<Ui>IAM → Roles → shortlink-ec2-role → Delete</Ui>. This also removes the instance profile.
+</Step>
+
+## If you built the CI/CD pipelines
+
+Delete these **before** the infrastructure above.
+
+- [ ] <Ui>CodePipeline → Pipelines</Ui>: delete `shortlink-api-prod` and/or `shortlink-web-prod`.
+- [ ] <Ui>CodeBuild → Build projects</Ui>: delete `shortlink-api-build`, `shortlink-web-build`, `shortlink-web-deploy`.
+- [ ] <Ui>CodeDeploy → Applications</Ui>: delete `shortlink-api` (this deletes its deployment group).
+- [ ] <Ui>Developer Tools → Settings → Connections</Ui>: delete your GitHub connection. Also, in GitHub, <Ui>Settings → Applications → Installed GitHub Apps → AWS Connector for GitHub → Configure</Ui> to revoke access if you no longer want it.
+- [ ] <Ui>S3</Ui>: empty and delete the `codepipeline-<region>-…` artifact bucket (<Var name="ARTIFACT_BUCKET" /> if you saved it).
+- [ ] <Ui>IAM → Roles</Ui>: delete `shortlink-codedeploy-service-role`, the CodePipeline service role(s) and the CodeBuild service roles the wizards created.
+- [ ] <Ui>CloudWatch → Log groups</Ui>: delete `/aws/codebuild/shortlink-…` groups.
+
+## Check that nothing is left
+
+```bash title="Nothing here should still be running or billing" env="laptop"
+echo "--- instances"; aws ec2 describe-instances --region <AWS_REGION> --filters Name=instance-state-name,Values=running,pending,stopped --query 'Reservations[].Instances[].InstanceId'
+echo "--- NAT gateways"; aws ec2 describe-nat-gateways --region <AWS_REGION> --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId'
+echo "--- Elastic IPs"; aws ec2 describe-addresses --region <AWS_REGION> --query 'Addresses[].PublicIp'
+echo "--- load balancers"; aws elbv2 describe-load-balancers --region <AWS_REGION> --query 'LoadBalancers[].LoadBalancerName'
+echo "--- databases"; aws rds describe-db-instances --region <AWS_REGION> --query 'DBInstances[].DBInstanceIdentifier'
+echo "--- buckets"; aws s3 ls | grep -i shortlink
+```
+
+<Result>Every list is empty (`[]`) and the bucket search prints nothing. Check again in 24 hours in <Ui>Billing and Cost Management → Cost Explorer</Ui>; charges for the previous day should have stopped.</Result>
+
+<Callout type="tip">
+If you only want to **pause** for the night instead of deleting, stop the instance and the database and delete the NAT gateway and load balancer. Those four account for nearly all the cost, and you can recreate the NAT gateway and load balancer in a few minutes from chapters 3 and 7.
+</Callout>

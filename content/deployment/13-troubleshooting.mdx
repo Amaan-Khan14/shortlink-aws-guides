@@ -1,0 +1,86 @@
+---
+title: Troubleshooting
+description: Symptoms, causes and fixes for the problems people actually hit, plus the commands to find the cause yourself.
+minutes: 15
+---
+
+Find your symptom in the table, apply the fix, then re-run the check that failed. Most problems in this deployment are one of four things: **a wrong Region, a wrong hostname, a security group rule, or a missing step in a network route**.
+
+## Find the cause yourself first
+
+Run these before guessing. They tell you which layer is broken.
+
+```bash title="Is the API running, and what did it say?" env="ec2"
+sudo systemctl status shortlink-api --no-pager
+sudo journalctl -u shortlink-api -n 80 --no-pager
+curl -fsS http://127.0.0.1:3000/health
+```
+
+```bash title="Which hostname is the API configured to use? (password not shown)" env="ec2"
+sudo sed -n 's/.*@\(.*\):5432.*/\1/p' /etc/shortlink/shortlink.env
+```
+
+```bash title="What is the database's real hostname right now?" env="laptop"
+aws rds describe-db-instances --region <AWS_REGION> --db-instance-identifier shortlink-db \
+  --query 'DBInstances[0].Endpoint.Address' --output text
+```
+
+```bash title="Why does the load balancer think the target is unhealthy?" env="laptop"
+aws elbv2 describe-target-health --region <AWS_REGION> \
+  --target-group-arn "$(aws elbv2 describe-target-groups --region <AWS_REGION> --names shortlink-app-tg --query 'TargetGroups[0].TargetGroupArn' --output text)" \
+  --query 'TargetHealthDescriptions[].{id:Target.Id,state:TargetHealth.State,reason:TargetHealth.Reason,detail:TargetHealth.Description}'
+```
+
+## Network and server
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Console cannot find a resource you just created | You are in a different Region | Check the Region selector at the top right. Use <Var name="AWS_REGION" /> for everything |
+| `apt-get` or `curl` on the server hangs or times out | The private subnet has no working path to the internet | In <Ui>VPC → Route tables</Ui> the private tables need `0.0.0.0/0 → nat-…`. Confirm the NAT gateway is *Available* |
+| Session Manager tab is greyed out, or the instance is not listed in Systems Manager | Missing role, no outbound path, or too soon after launch | Attach `shortlink-ec2-role`, check the NAT route, wait up to 10 minutes, then reboot the instance |
+| `Permission denied` when you `cd` into `/home/ubuntu` | You are `ssm-user`, not `ubuntu` | Use `sudo -u ubuntu …` for app commands, and absolute paths under `/opt/shortlink` |
+| `node: bad option: --env-file` | Node.js older than 20.6 | Install Node 22 from NodeSource (chapter 10) and make sure `command -v node` prints `/usr/bin/node` |
+| `npm ci` fails with `EACCES` | The command ran as the wrong user or in a folder `ubuntu` does not own | Run it as `sudo -u ubuntu` inside `/opt/shortlink/repo/…` |
+| The password prompt consumed the next command | You pasted the `read` block and the next block together | Run `read` alone, enter the password, press Enter, then paste the next block |
+
+## Database
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `ETIMEDOUT` connecting to the database | Wrong or **stale hostname**, or `shortlink-db-sg` does not allow `shortlink-api-sg` | Compare the two hostnames from the commands above. Fix `DATABASE_URL`, then `sudo systemctl restart shortlink-api`. Check the security group rule uses the **group**, not an IP |
+| `no pg_hba.conf entry … no encryption` | TLS is off | Set `DB_SSL=true` in the env file and restart |
+| `password authentication failed for user "postgres"` | Wrong password, or special characters not encoded | Recreate the file with the `read` and `tee` steps, which URL-encode for you |
+| `database "shortlink" does not exist` | **Initial database name** was left empty | Delete and recreate the RDS instance with the initial database `shortlink` |
+| RDS creation says the subnet group does not cover two zones | The subnet group has subnets in only one Availability Zone | Edit `shortlink-db-subnets` to include both private subnets |
+| `/health` returns `503 {"database":"down"}` | The API runs but cannot query the database | Same as the first row. Also confirm the database **Status** is *Available* |
+
+## Load balancer
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `curl` to the ALB returns **503** | No healthy targets | Register the instance on port 3000 and wait ~30 seconds. If it stays unhealthy see the next row |
+| Target is **Unhealthy**: *Request timed out* | `shortlink-api-sg` does not accept port 3000 from `shortlink-alb-sg`, or the service is down | Check the rule (source must be the ALB's group) and `systemctl is-active shortlink-api` |
+| Target is **Unhealthy**: *Health checks failed with these codes: [503]* | The API is up but the database is not reachable | Fix the database connection first |
+| ALB times out from the internet | ALB is in private subnets, or `shortlink-alb-sg` does not allow port 80 | Check the ALB's subnets are the public ones, and the inbound rule is HTTP 80 from `0.0.0.0/0` |
+| `curl` cannot resolve the ALB hostname | ALB still provisioning, or a typo in the hostname | Wait for **Active**; copy the DNS name again |
+| `429 Too Many Requests` | The API's built-in rate limiter (30 creates per minute per IP) | Wait a minute |
+
+## Website
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Website URL returns **403** | Public read is blocked | Re-check the two unticked Block Public Access boxes and the bucket policy. Check account-level Block Public Access too |
+| Website URL returns **404** | Bucket is empty, or `index.html` is inside a nested `dist/` folder | Run `aws s3 ls s3://<WEB_BUCKET>/` and make sure `index.html` is at the root |
+| `NoSuchBucket` | A typo in the bucket name, or the bucket is in another Region | Copy the name from the S3 console |
+| Site loads but the badge says **API unreachable** | The site was built without `VITE_API_BASE_URL`, or the API's CORS origin is wrong | See the next two rows |
+| Network tab shows calls to the S3 hostname or `/api/…` | The variable was missing at build time | Rebuild with it set and upload again (chapter 11) |
+| Console shows a **CORS** error | `CORS_ORIGIN` does not match the website origin exactly | Set it to <Var name="WEB_URL" /> (no trailing slash), then `sudo systemctl restart shortlink-api` |
+| Your browser forces HTTPS and shows a warning page | The site has no certificate. HTTP-only by design here | Choose to continue to the HTTP site. See "What this setup does not give you" |
+| New short links show the wrong host | `BASE_URL` in the env file is stale | Correct it and restart the service |
+| Edits to the env file have no effect | The API only reads it at start | `sudo systemctl restart shortlink-api` |
+
+<Callout type="tip" title="Still stuck?">
+Search the guides with <kbd>⌘</kbd> <kbd>K</kbd> for the exact error text. When you ask for help, include the **command you ran**, the **full error**, and the output of the "find the cause yourself" commands at the top. Never paste your database password or access keys.
+</Callout>
+
+Next: [clean up](/guides/deployment/clean-up/).
