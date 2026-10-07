@@ -1,0 +1,140 @@
+---
+title: Create the pipeline
+description: Source, Build and Deploy stages created with the CodePipeline wizard, triggered only by pushes that touch the API.
+minutes: 25
+---
+
+The CodePipeline wizard creates the pipeline, a CodeBuild project and the service roles in one pass. You will answer six screens.
+
+<Callout type="note" title="Expect a failed first run, and that is fine">
+The pipeline starts as soon as it is created. It will most likely **fail at Deploy** because the server has no permission to read the artifact bucket yet. You add that in the next chapter and then run it again. Do not try to "fix" the first failure now.
+</Callout>
+
+## Run the wizard
+
+<Step title="Choose how to create it">
+Open <Ui>CodePipeline → Pipelines → Create pipeline</Ui>. Choose **Build custom pipeline** and then **Next**.
+</Step>
+
+<Step title="Pipeline settings">
+| Field | Value |
+|---|---|
+| Pipeline name | `shortlink-api-prod` |
+| Pipeline type | **V2** |
+| Execution mode | **Queued** |
+| Service role | **New service role** (accept the generated name) |
+| Allow AWS CodePipeline to create a service role | ticked |
+
+Under **Advanced settings** leave **Artifact store** on **Default location** and the encryption key on **Default AWS managed key**. The artifact store is a **private** bucket named `codepipeline-<region>-…`, not your website bucket.
+
+Choose **Next**.
+</Step>
+
+<Step title="Source">
+| Field | Value |
+|---|---|
+| Source provider | **GitHub (via GitHub App)** |
+| Connection | `shortlink-github` |
+| Repository name | <Var name="GITHUB_USER" />/<Var name="REPO_NAME" /> (**your fork**) |
+| Default branch | `main` |
+| Output artifact format | **CodePipeline default** (a ZIP) |
+
+Under **Trigger**, keep **Start the pipeline on source code change** and add a filter so only backend changes start a release:
+
+| Field | Value |
+|---|---|
+| Event type | **Push** |
+| Branches → Include | `main` |
+| File paths → Include | `shortlink-api/**`, `appspec.yml`, `deploy/**` |
+
+<Callout type="tip" title="Why file paths?">
+Without them, editing a README would rebuild and redeploy the API. With them, only commits that change the API or its deployment files run the pipeline. A commit that touches **only** `shortlink-web/` runs the *frontend* pipeline from guide 3 instead.
+</Callout>
+
+<Callout type="warning" title="Do not trigger on pull requests">
+Production should only deploy from reviewed code on `main`. Do not add a pull-request trigger to a pipeline that deploys to your server.
+</Callout>
+
+Choose **Next**. The output artifact for this stage is called `SourceArtifact`.
+</Step>
+
+<Step title="Build: create the CodeBuild project">
+| Field | Value |
+|---|---|
+| Build provider | **Other build providers → AWS CodeBuild** |
+| Region | <Var name="AWS_REGION" /> |
+| Project name | choose **Create project** |
+
+A new window or panel opens for the CodeBuild project:
+
+| Field | Value |
+|---|---|
+| Project name | `shortlink-api-build` |
+| Project type | **Default project** (not *Runner project*) |
+| Environment image | **Managed image** |
+| Compute | **EC2** |
+| Operating system | **Amazon Linux** |
+| Runtime(s) | **Standard** |
+| Image | `aws/codebuild/amazonlinux-x86_64-standard:5.0` (or the newest *standard* image offered) |
+| Service role | **New service role** (accept the name) |
+| Buildspec | **Use a buildspec file** → `deploy/buildspec-api.yml` |
+| Logs | **CloudWatch logs** ticked |
+| VPC | none |
+
+<Callout type="note" title="There is no 'Node 20' selector">
+That is expected. The buildspec asks for it with `runtime-versions: nodejs: 20`, as you saw in the previous chapter. You only need an image that supports it.
+</Callout>
+
+Choose **Continue to CodePipeline**. Back in the wizard, confirm **Input artifacts** is `SourceArtifact`, **Build type** is **Single build**, and leave the output artifact as the default, `BuildArtifact`. Choose **Next**.
+</Step>
+
+<Step title="Test: skip">
+Choose **Skip test stage** (and confirm). Tests already run inside the build.
+</Step>
+
+<Step title="Deploy">
+| Field | Value |
+|---|---|
+| Deploy provider | **AWS CodeDeploy** |
+| Region | <Var name="AWS_REGION" /> |
+| Application name | `shortlink-api` |
+| Deployment group | `shortlink-api-prod` |
+| Input artifacts | `BuildArtifact` |
+
+Choose **Next**.
+</Step>
+
+<Step title="Review and create">
+Check the summary: Source (`SourceArtifact`) → Build (`BuildArtifact`) → Deploy. Choose **Create pipeline**.
+
+The pipeline starts running. Let it. If **Deploy** fails with an *access denied* or *cannot download* message, that is the expected first failure.
+</Step>
+
+<Step title="Verify the structure">
+```bash title="Show stages and actions" env="laptop"
+aws codepipeline get-pipeline --region <AWS_REGION> --name shortlink-api-prod \
+  --query 'pipeline.{type:pipelineType,mode:executionMode,stages:stages[].{stage:name,actions:actions[].{action:name,provider:actionTypeId.provider,in:inputArtifacts[].name,out:outputArtifacts[].name}}}' \
+  --output json
+```
+
+<Result>Three stages, **Source** (provider `CodeStarSourceConnection`, output `SourceArtifact`), **Build** (`CodeBuild`, input `SourceArtifact`, output `BuildArtifact`) and **Deploy** (`CodeDeploy`, input `BuildArtifact`). `type` is `V2` and `mode` is `QUEUED`.</Result>
+
+<Details title="The Build action has no output artifact">
+Open <Ui>CodePipeline → shortlink-api-prod → Edit → Build → Edit stage → the action → Edit</Ui> and set **Output artifacts** to `BuildArtifact`. Then check that the **Deploy** action's input is `BuildArtifact`. Save the pipeline.
+</Details>
+</Step>
+
+<Details title="CodeBuild says its source type is GitHub instead of CodePipeline">
+Projects created from the **wizard** use the `CODEPIPELINE` source and artifact types automatically. That mismatch only happens when a project was created separately in the CodeBuild console first. Fix it from the command line, then confirm:
+
+```bash title="Switch a CodeBuild project to pipeline mode" env="laptop"
+aws codebuild update-project --region <AWS_REGION> --name shortlink-api-build \
+  --source 'type=CODEPIPELINE,buildspec=deploy/buildspec-api.yml' --artifacts 'type=CODEPIPELINE'
+aws codebuild batch-get-projects --region <AWS_REGION> --names shortlink-api-build \
+  --query 'projects[].{name:name,source:source.type,artifacts:artifacts.type,buildspec:source.buildspec}'
+```
+
+Both `source` and `artifacts` must say `CODEPIPELINE`. CodeBuild validates them together, so setting only the source (or `NO_ARTIFACTS`) is rejected.
+</Details>
+
+Next: [fix the permissions](/guides/backend-cicd/permissions/).

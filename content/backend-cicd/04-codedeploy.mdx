@@ -1,0 +1,98 @@
+---
+title: Create the CodeDeploy application
+description: A service role, an application and a deployment group that targets your server by its Name tag.
+minutes: 20
+---
+
+CodeDeploy needs three things: a **service role** that lets it manage your deployment, an **application** (a named container for revisions), and a **deployment group** (which servers, how to deploy, what to do on failure).
+
+## The service role
+
+<Step title="Create shortlink-codedeploy-service-role">
+Open <Ui>IAM → Roles → Create role</Ui>.
+
+| Field | Value |
+|---|---|
+| Trusted entity type | **AWS service** |
+| Use case | **CodeDeploy** (not *CodeDeploy for Lambda* or *CodeDeploy - ECS*) |
+
+Choose **Next**. The managed policy **`AWSCodeDeployRole`** is attached for you. Choose **Next**, name the role `shortlink-codedeploy-service-role`, and **Create role**.
+
+<Callout type="note" title="This role is not the one on your server">
+There are two different roles that both have "CodeDeploy" in their story. This **service role** is used by the CodeDeploy *service* to look up instances and load balancers. The **instance role** (`shortlink-ec2-role`) is used by the *agent on the server* to download bundles. They get different permissions.
+</Callout>
+</Step>
+
+## The application
+
+<Step title="Create the application">
+Open <Ui>CodeDeploy → Applications → Create application</Ui>.
+
+| Field | Value |
+|---|---|
+| Application name | `shortlink-api` |
+| Compute platform | **EC2/On-premises** |
+
+Choose **Create application**.
+</Step>
+
+## The deployment group
+
+<Step title="Open the deployment group form">
+In the application, choose <Ui>Deployment groups → Create deployment group</Ui>.
+</Step>
+
+<Step title="Name, role and style">
+| Field | Value |
+|---|---|
+| Deployment group name | `shortlink-api-prod` |
+| Service role | `shortlink-codedeploy-service-role` |
+| Deployment type | **In-place** |
+</Step>
+
+<Step title="Environment configuration">
+| Field | Value |
+|---|---|
+| Environment configuration | **Amazon EC2 instances** |
+| Tag group 1 → Key | `Name` |
+| Tag group 1 → Value | `shortlink-api` |
+| Agent configuration with AWS Systems Manager | **Never** (you installed the agent yourself) |
+
+Under the tag fields the console should say **1 unique matched instance**. That is how you know the tag and the agent are found.
+
+<Callout type="warning" title="'Tag key cannot be empty'">
+That message means the form still has an extra blank tag row. Fill it in with `Name` / `shortlink-api` or choose **Remove tag**. You need exactly one tag group with one complete key and value. Leave **On-premises instances** unticked.
+</Callout>
+
+<Callout type="problem" title="'0 unique matched instances'">
+The tag on the instance does not equal `shortlink-api` exactly (case matters), or the instance is stopped. Check <Ui>EC2 → Instance → Tags</Ui>.
+</Callout>
+</Step>
+
+<Step title="Deployment settings and load balancer">
+| Field | Value |
+|---|---|
+| Deployment settings | `CodeDeployDefault.AllAtOnce` |
+| Load balancer | tick **Enable load balancing** |
+| Load balancer type | **Application Load Balancer or Network Load Balancer** |
+| Target group | `shortlink-app-tg` |
+
+With load balancing on, CodeDeploy removes the server from the target group while it updates it, and adds it back only after the health check passes. Without it, the load balancer would send visitors to a half-installed app.
+</Step>
+
+<Step title="Rollbacks">
+Expand **Advanced** and in **Rollbacks** tick **Enable rollbacks**, then choose **Roll back when a deployment fails**. Choose **Create deployment group**.
+</Step>
+
+<Step title="Verify">
+```bash title="Show the deployment group" env="laptop"
+aws deploy get-deployment-group --region <AWS_REGION> \
+  --application-name shortlink-api --deployment-group-name shortlink-api-prod \
+  --query 'deploymentGroupInfo.{config:deploymentConfigName,style:deploymentStyle,tags:ec2TagSet.ec2TagSetList,lb:loadBalancerInfo.targetGroupInfoList[].name,rollback:autoRollbackConfiguration}' \
+  --output json
+```
+
+<Result>`config` is `CodeDeployDefault.AllAtOnce`, `style.deploymentType` is `IN_PLACE` with `WITH_TRAFFIC_CONTROL`, the tag is `Name = shortlink-api`, the target group is `shortlink-app-tg`, and rollback is enabled for `DEPLOYMENT_FAILURE`.</Result>
+</Step>
+
+Next: [connect GitHub](/guides/backend-cicd/github-connection/).

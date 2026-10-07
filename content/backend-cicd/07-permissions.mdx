@@ -1,0 +1,126 @@
+---
+title: Permissions between the pieces
+description: Why each IAM role needs its own policy, and the two policies you add so deployments can download and start.
+minutes: 20
+---
+
+Every component in the pipeline acts as a different **IAM role**, and a permission only helps the role it is attached to. This is the number one source of confusing errors, so spend a moment on the map before you add anything.
+
+## Who needs what
+
+| Role | Who uses it | What it must be able to do |
+|---|---|---|
+| Pipeline service role (created by the wizard) | CodePipeline | Read the GitHub connection, read/write the artifact bucket, **start CodeBuild**, **create CodeDeploy deployments** |
+| `codebuild-shortlink-api-build-service-role` (wizard) | CodeBuild | Write logs, read/write the artifact bucket |
+| `shortlink-codedeploy-service-role` | The CodeDeploy service | Find your instance, and control the target group (`AWSCodeDeployRole`) |
+| `shortlink-ec2-role` | The **agent on the server** | Systems Manager, and **download revisions from the artifact bucket** |
+
+The wizard handles the first two rows when you create the pipeline from it. The last row is the one people forget, and the pipeline row sometimes lacks CodeDeploy rights. You will fix both.
+
+<Callout type="warning" title="A policy attached to the wrong role does nothing">
+Do not paste these policies into the **S3 bucket policy** editor or into your Git repository. They go under <Ui>IAM → Roles → the exact role → Permissions → Add permissions → Create inline policy → JSON</Ui>.
+</Callout>
+
+## Find the names you need
+
+<Step title="Get the artifact bucket and the pipeline role">
+```bash title="Artifact bucket and pipeline role" env="laptop"
+aws codepipeline get-pipeline --region <AWS_REGION> --name shortlink-api-prod \
+  --query 'pipeline.{bucket:artifactStore.location,role:roleArn}' --output table
+```
+
+Copy the `bucket` (it starts with `codepipeline-`) into **My values → Pipeline artifact bucket**. Note the pipeline `role` name: it is the last part of the ARN.
+</Step>
+
+## Let the server download releases
+
+<Step title="Add an inline policy to shortlink-ec2-role">
+Open <Ui>IAM → Roles → shortlink-ec2-role → Permissions → Add permissions → Create inline policy</Ui>. Switch to the **JSON** tab, paste this, and name the policy `shortlink-pipeline-artifacts-read`.
+
+```json title="shortlink-pipeline-artifacts-read" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+      "Resource": "arn:aws:s3:::<ARTIFACT_BUCKET>/*"
+    }
+  ]
+}
+```
+
+The **agent** (running as this role) downloads the ZIP straight from S3. Your server reaches S3 through the gateway endpoint you created in the network chapter, so it does not use the NAT gateway for this.
+
+<Callout type="note" title="Customer-managed KMS key?">
+The default pipeline bucket uses the AWS-managed key, which needs nothing more. If you chose your own KMS key for the artifact store, also allow `kms:Decrypt` on that key for this role.
+</Callout>
+</Step>
+
+## Let the pipeline start CodeDeploy
+
+<Step title="Add an inline policy to the pipeline service role">
+Open <Ui>IAM → Roles → (your pipeline role) → Permissions → Add permissions → Create inline policy → JSON</Ui>. Name it `shortlink-api-deploy`.
+
+```json title="shortlink-api-deploy" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "codedeploy:CreateDeployment",
+        "codedeploy:GetApplication",
+        "codedeploy:GetApplicationRevision",
+        "codedeploy:GetDeployment",
+        "codedeploy:RegisterApplicationRevision",
+        "codedeploy:ListDeployments",
+        "codedeploy:ListDeploymentGroups",
+        "codedeploy:GetDeploymentGroup"
+      ],
+      "Resource": [
+        "arn:aws:codedeploy:<AWS_REGION>:<AWS_ACCOUNT_ID>:application:shortlink-api",
+        "arn:aws:codedeploy:<AWS_REGION>:<AWS_ACCOUNT_ID>:deploymentgroup:shortlink-api/shortlink-api-prod"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "codedeploy:GetDeploymentConfig",
+      "Resource": "arn:aws:codedeploy:<AWS_REGION>:<AWS_ACCOUNT_ID>:deploymentconfig:CodeDeployDefault.AllAtOnce"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "codedeploy:ListDeploymentConfigs",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+If the wizard already granted these, this policy is harmless: IAM permissions only add up.
+</Step>
+
+<Step title="Check the other two roles by eye">
+- **Pipeline role** also has a managed or inline policy mentioning `codeconnections:UseConnection` for your connection <Var name="CONNECTION_ARN" />, and `codebuild:StartBuild` / `codebuild:BatchGetBuilds` for `shortlink-api-build`. The wizard writes both.
+- **`codebuild-shortlink-api-build-service-role`** has CloudWatch Logs access and S3 access to the `codepipeline-<region>-…` bucket.
+- **`shortlink-codedeploy-service-role`** has `AWSCodeDeployRole` attached.
+
+```bash title="List what the CodeDeploy role has attached" env="laptop"
+aws iam list-attached-role-policies --role-name shortlink-codedeploy-service-role --output table
+aws iam list-role-policies --role-name shortlink-ec2-role --output table
+```
+
+<Result>The first shows `AWSCodeDeployRole`. The second lists `shortlink-pipeline-artifacts-read`.</Result>
+</Step>
+
+## The errors these policies prevent
+
+| Error text | Role to fix |
+|---|---|
+| `AccessDenied` / `not authorized to perform: codedeploy:…` in the pipeline's Deploy action | Pipeline role: `shortlink-api-deploy` |
+| `Access Denied` in the CodeDeploy event `DownloadBundle` | `shortlink-ec2-role`: artifact read |
+| `not authorized to perform: codebuild:StartBuild` and **no CodeBuild log exists** | Pipeline role. The failure is in CodePipeline, before any build begins |
+| `Unable to access the artifact bucket` in a CodeBuild log | The CodeBuild service role |
+| `Could not determine instances` / `InvalidTagFilter` | The tag, or `shortlink-codedeploy-service-role` |
+
+Next: [run the first release](/guides/backend-cicd/first-release/).

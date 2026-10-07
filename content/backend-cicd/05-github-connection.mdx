@@ -1,0 +1,64 @@
+---
+title: Connect AWS to your fork
+description: Authorize the AWS Connector for GitHub on your fork so CodePipeline can read it.
+minutes: 10
+---
+
+CodePipeline cannot read GitHub with a password. It uses a **connection**: you install the *AWS Connector for GitHub* app on **your** GitHub account and choose which repositories it may read. The pipeline then uses that connection to download your code and to learn about new pushes.
+
+<Callout type="problem" title="Why the original repository cannot work here">
+Installing a GitHub App on a repository needs **owner or organisation admin** rights on it. Only your own fork gives you that. If you try to install it from the original repository you either cannot select it or the pipeline cannot see it, and even if it could read it, you could never push to trigger a build.
+</Callout>
+
+<Callout type="note" title="Already did guide 3?">
+A connection is reusable. If you already created one for your fork in the frontend guide and its status is **Available** in the same Region, skip to the last step of this chapter and copy its ARN.
+</Callout>
+
+## Create the connection
+
+<Step title="Start a new connection">
+Open <Ui>Developer Tools → Settings → Connections</Ui> (or <Ui>CodePipeline → Settings → Connections</Ui>). Check the Region selector is <Var name="AWS_REGION" />, then choose **Create connection**.
+
+| Field | Value |
+|---|---|
+| Select a provider | **GitHub** |
+| Connection name | `shortlink-github` |
+
+Choose **Connect to GitHub**.
+</Step>
+
+<Step title="Authorize the app on GitHub">
+A GitHub window opens (allow pop-ups if nothing appears).
+
+1. Sign in to GitHub if asked, then choose **Authorize AWS Connector for GitHub**.
+2. Back in the AWS dialog, next to *GitHub Apps* choose **Install a new app**.
+3. On GitHub choose your **personal account** (not an organisation you do not own).
+4. Choose **Only select repositories** and pick **your fork**, <Var name="GITHUB_USER" />/<Var name="REPO_NAME" />.
+5. Choose **Install**.
+
+<Callout type="warning" title="Do not choose 'All repositories'">
+Granting the app access to only the fork follows least privilege. You can add repositories later.
+</Callout>
+</Step>
+
+<Step title="Finish in AWS">
+Back in the AWS dialog the new installation is selected in the *GitHub Apps* list. Choose **Connect**, then **Create connection**.
+
+<Result>The connection **Status** is **Available**. A connection left in **Pending** cannot be used by a pipeline. Open it and choose **Update pending connection** to finish.</Result>
+</Step>
+
+<Step title="Check from the command line and save the ARN">
+```bash title="List GitHub connections" env="laptop"
+aws codeconnections list-connections --region <AWS_REGION> --provider-type-filter GitHub \
+  --query 'Connections[].{name:ConnectionName,status:ConnectionStatus,arn:ConnectionArn}' --output table
+```
+
+Copy the `arn` of `shortlink-github` into **My values → GitHub connection ARN**. It looks like `arn:aws:codeconnections:<region>:<account>:connection/<uuid>`.
+</Step>
+
+<Details title="My fork is not in the repository list when I build the pipeline">
+- The app is installed on a different GitHub account, or on the fork with a typo in the account. Open GitHub → <Ui>Settings → Applications → Installed GitHub Apps → AWS Connector for GitHub → Configure</Ui> and check **Repository access** includes your fork.
+- The connection is in a different AWS Region from the pipeline. They must match.
+</Details>
+
+Next: [create the pipeline](/guides/backend-cicd/pipeline/).
