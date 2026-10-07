@@ -1,0 +1,117 @@
+---
+title: Create the website bucket
+description: An S3 bucket configured as a public static website for the React app.
+minutes: 15
+---
+
+The frontend is a set of static files (HTML, JavaScript, CSS). **S3 static website hosting** serves them directly with no server to run. The bucket must be **publicly readable**, so you will deliberately relax one of S3's safety defaults, for this bucket only.
+
+You create the bucket now, before the server, because the API needs to know the website's address (its CORS origin) and the address is derived from the bucket name.
+
+<Callout type="warning" title="Bucket names are global">
+No two AWS accounts in the world can have a bucket with the same name. Use the suggested name from **My values**, which includes your account ID and Region: <Var name="WEB_BUCKET" />. Never use a name from someone else's guide or the instructor's repository.
+</Callout>
+
+## Create the bucket
+
+<Step title="Open the wizard">
+Open <Ui>S3 → Buckets → Create bucket</Ui>.
+
+| Field | Value |
+|---|---|
+| Bucket type | **General purpose** |
+| AWS Region | your Region, <Var name="AWS_REGION" /> |
+| Bucket name | <Var name="WEB_BUCKET" /> |
+| Object Ownership | **ACLs disabled (recommended)** |
+</Step>
+
+<Step title="Allow public policies, but not ACLs">
+Under **Block Public Access settings for this bucket**:
+
+1. **Untick** *Block all public access*.
+2. Tick the orange acknowledgement box.
+3. In the four checkboxes that appear, make them look like this:
+
+| Setting | State |
+|---|---|
+| Block public access granted through **new ACLs** | ticked |
+| Block public access granted through **any ACLs** | ticked |
+| Block public access granted through **new public bucket or access point policies** | **unticked** |
+| Block public access granted through **any public bucket or access point policies** | **unticked** |
+
+Only bucket **policies** may grant public read. ACLs stay blocked, which is the narrowest setting that works.
+</Step>
+
+<Step title="Versioning and encryption">
+| Field | Value |
+|---|---|
+| Bucket Versioning | **Enable** (lets you recover overwritten files) |
+| Default encryption | SSE-S3 (the default) |
+
+Choose **Create bucket**.
+</Step>
+
+## Turn on website hosting
+
+<Step title="Enable static website hosting">
+Open the bucket → **Properties** → scroll to **Static website hosting** → **Edit**.
+
+| Field | Value |
+|---|---|
+| Static website hosting | **Enable** |
+| Hosting type | **Host a static website** |
+| Index document | `index.html` |
+| Error document | `index.html` |
+
+Save changes. At the bottom of **Properties**, **Bucket website endpoint** now shows a URL. It must match the website URL that **My values** works out for you:
+
+<Var name="WEB_URL" />
+
+<Callout type="note" title="Why is the error document index.html too?">
+It lets a single-page app show its own page for unknown paths. S3 still answers those requests with status 404 even though the body is the app, which is fine for ShortLink.
+</Callout>
+</Step>
+
+<Step title="Add the public-read bucket policy">
+Open **Permissions → Bucket policy → Edit**, paste the policy below, and save.
+
+```json title="Bucket policy" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadStaticAssets",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::<WEB_BUCKET>/*"
+    }
+  ]
+}
+```
+
+It grants one action, `s3:GetObject` (download a file), to everyone, on the objects of this one bucket. Nobody can list, upload or delete.
+
+<Result>The console shows a red **Publicly accessible** badge next to the bucket's name. For a website bucket that is correct.</Result>
+</Step>
+
+<Step title="Verify">
+The bucket is empty, so the site has nothing to serve yet. The right answer at this point is a *not found* page, not an access error.
+
+```bash title="Ask for the (still missing) home page" env="laptop"
+curl -sI <WEB_URL>/ | head -n 1
+```
+
+```text env="output"
+HTTP/1.1 404 Not Found
+```
+
+- **404** means the website endpoint works and the policy is fine. You will upload the app soon.
+- **403 Forbidden** means public read is blocked: re-check the two unticked boxes and the policy.
+</Step>
+
+<Details title="Saving the bucket policy says 'Access denied' or 'blocked by Block Public Access'">
+Your account or organisation has **account-level** Block Public Access turned on, which overrides the bucket setting. Open <Ui>S3 → Block Public Access settings for this account</Ui>. If you own the account you can relax *Block public access to buckets and objects granted through new public bucket or access point policies* there. If your organisation controls it, ask the administrator; this guide cannot work around it.
+</Details>
+
+Next: [launch the API server](/guides/deployment/ec2-instance/).

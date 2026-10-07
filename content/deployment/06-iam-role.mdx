@@ -1,0 +1,61 @@
+---
+title: Create the server's IAM role
+description: Give the EC2 instance an identity so you can open a shell with Session Manager and no SSH keys.
+minutes: 8
+---
+
+The API server will live in a private subnet with no public IP. You will still need a shell on it. **AWS Systems Manager Session Manager** provides one over HTTPS, with no SSH keys, no open port 22 and a log of who connected. For that to work, the instance needs an **IAM role** that allows the Systems Manager agent to talk to AWS.
+
+An **instance profile** is the wrapper that attaches a role to an EC2 instance. When you create a role for EC2 in the console, AWS creates a matching instance profile with the same name automatically.
+
+## Create the role
+
+<Step title="Start the role wizard">
+Open <Ui>IAM → Roles → Create role</Ui>.
+
+| Field | Value |
+|---|---|
+| Trusted entity type | **AWS service** |
+| Service or use case | **EC2** |
+| Use case | **EC2** (the first option, "Allows EC2 instances to call AWS services on your behalf") |
+
+Choose **Next**.
+</Step>
+
+<Step title="Attach the Systems Manager policy">
+In the search box type `AmazonSSMManagedInstanceCore` and tick that managed policy. Choose **Next**.
+
+<Callout type="note" title="That is the only policy for now">
+In the CI/CD guide you will add one more permission (reading deployment packages from S3). Starting with the minimum keeps the reason for each permission clear.
+</Callout>
+</Step>
+
+<Step title="Name it and create">
+| Field | Value |
+|---|---|
+| Role name | `shortlink-ec2-role` |
+| Description | `Lets the ShortLink API server use Systems Manager` |
+
+Review that the **Trust policy** shows `ec2.amazonaws.com` and **Permissions** lists `AmazonSSMManagedInstanceCore`, then choose **Create role**.
+</Step>
+
+<Step title="Verify the instance profile exists">
+```bash title="Check role and instance profile" env="laptop"
+aws iam get-role --role-name shortlink-ec2-role --query 'Role.{name:RoleName,arn:Arn}' --output table
+aws iam get-instance-profile --instance-profile-name shortlink-ec2-role \
+  --query 'InstanceProfile.{profile:InstanceProfileName,role:Roles[0].RoleName}' --output table
+```
+
+<Result>Both commands succeed, and the instance profile `shortlink-ec2-role` contains the role `shortlink-ec2-role`.</Result>
+</Step>
+
+<Details title="get-instance-profile says NoSuchEntity">
+That happens if the role was created with the CLI or another tool, which does not create the profile for you. Create it manually:
+
+```bash title="Create the instance profile by hand" env="laptop"
+aws iam create-instance-profile --instance-profile-name shortlink-ec2-role
+aws iam add-role-to-instance-profile --instance-profile-name shortlink-ec2-role --role-name shortlink-ec2-role
+```
+</Details>
+
+Next: [S3 website bucket](/guides/deployment/s3-website/) and the [load balancer](/guides/deployment/load-balancer/) come before the server.

@@ -1,0 +1,119 @@
+---
+title: Create the load balancer
+description: A target group with a health check, and an internet-facing Application Load Balancer in front of the API.
+minutes: 20
+---
+
+The **Application Load Balancer (ALB)** is the only public door to your API. It accepts HTTP on port 80, picks a healthy server from a **target group**, and forwards the request to port 3000. It keeps asking each server a question (the **health check**) and stops sending traffic to servers that do not answer.
+
+You will create the target group first, then the load balancer. The server does not exist yet, and that is fine: you register it in the EC2 chapter.
+
+## Create the target group
+
+<Step title="Open the wizard">
+Open <Ui>EC2 → Target Groups → Create target group</Ui>.
+
+| Field | Value |
+|---|---|
+| Choose a target type | **Instances** |
+| Target group name | `shortlink-app-tg` |
+| Protocol : Port | **HTTP** : `3000` |
+| IP address type | IPv4 |
+| VPC | `shortlink-vpc` |
+| Protocol version | HTTP1 |
+</Step>
+
+<Step title="Set the health check">
+Under **Health checks**:
+
+| Field | Value |
+|---|---|
+| Health check protocol | HTTP |
+| Health check path | `/health` |
+
+Expand **Advanced health check settings**:
+
+| Field | Value |
+|---|---|
+| Port | Traffic port |
+| Healthy threshold | `2` |
+| Unhealthy threshold | `2` |
+| Timeout | `5` seconds |
+| Interval | `10` seconds |
+| Success codes | `200` |
+
+`/health` is a route the API provides. It runs a tiny query against the database and returns `200 {"status":"ok","database":"up"}`, or `503` if the database cannot be reached. So a server only counts as healthy if the **database connection works too**.
+</Step>
+
+<Step title="Skip registering targets and create">
+Choose **Next**. On **Register targets** do not select anything. Choose **Create target group**.
+</Step>
+
+<Step title="Shorten the deregistration delay">
+Open the new target group → **Attributes → Edit**. Change **Deregistration delay** from `300` to `30` seconds and save.
+
+<Callout type="tip" title="Why change this?">
+When a server is removed from the group (for example during a deployment) the ALB waits this long for in-flight requests. With one server and the default 300 seconds, **every CI/CD deployment waits five minutes** before it can continue. 30 seconds is plenty for this app.
+</Callout>
+</Step>
+
+## Create the load balancer
+
+<Step title="Choose the type">
+Open <Ui>EC2 → Load Balancers → Create load balancer</Ui>. Under **Application Load Balancer** choose **Create**.
+</Step>
+
+<Step title="Basic configuration and network mapping">
+| Field | Value |
+|---|---|
+| Load balancer name | `shortlink-alb` |
+| Scheme | **Internet-facing** |
+| Load balancer IP address type | IPv4 |
+| VPC | `shortlink-vpc` |
+| Mappings | Tick **both** Availability Zones and, for each, choose the **public** subnet (`10.0.1.0/24` and `10.0.2.0/24`) |
+
+<Callout type="warning" title="Public subnets only">
+The subnet dropdown also lists your private subnets. The load balancer must sit in the **public** ones (names contain *public*). A load balancer in private subnets cannot be reached from the internet.
+</Callout>
+</Step>
+
+<Step title="Security group and listener">
+| Field | Value |
+|---|---|
+| Security groups | Remove `default`, add **`shortlink-alb-sg`** |
+| Listener protocol : port | **HTTP** : `80` |
+| Default action | **Forward to** `shortlink-app-tg` |
+
+Choose **Create load balancer**.
+</Step>
+
+<Step title="Wait for Active and save the DNS name">
+Open the load balancer. **State** moves from *Provisioning* to **Active** in 2 to 3 minutes. Copy **DNS name** (it looks like `shortlink-alb-123456789.<region>.elb.amazonaws.com`) into **My values → Load balancer DNS name**.
+
+<Callout type="note" title="Save it without http:// or a trailing slash">
+My values wants just the hostname. The commands add `http://` where needed.
+</Callout>
+</Step>
+
+<Step title="Verify">
+```bash title="Ask the load balancer for /health" env="laptop"
+curl -i http://<ALB_DNS>/health
+```
+
+```text env="output"
+HTTP/1.1 503 Service Temporarily Unavailable
+```
+
+A **503** is exactly what you want right now. It proves the load balancer is reachable from the internet and that it has no healthy servers yet.
+</Step>
+
+<Details title="curl times out or cannot resolve the host">
+- **Cannot resolve host:** the load balancer may still be provisioning. Wait a minute and retry.
+- **Timeout:** the load balancer is in the wrong subnets, or `shortlink-alb-sg` does not allow port 80 from `0.0.0.0/0`. Re-check the mappings and the security group.
+</Details>
+
+<Callout type="problem" title="HTTP only, by design">
+The listener is HTTP on port 80. Browsers will show "Not secure". You cannot add an HTTPS listener without a certificate, and a certificate needs a domain name. See the *Verify* and *Next steps* chapter for what to do in production.
+</Callout>
+
+Next: [the S3 website bucket](/guides/deployment/s3-website/).

@@ -1,0 +1,112 @@
+---
+title: Launch the API server
+description: An Ubuntu EC2 instance in a private subnet with no public IP, reachable with Session Manager.
+minutes: 20
+---
+
+Now the server that will run the API. It goes in a **private subnet** with **no public IP address**, uses the security group `shortlink-api-sg`, and carries the role `shortlink-ec2-role`.
+
+## Launch the instance
+
+<Step title="Open the launch wizard and name it">
+Open <Ui>EC2 → Instances → Launch instances</Ui>.
+
+| Field | Value |
+|---|---|
+| Name | `shortlink-api` |
+
+<Callout type="danger" title="This name is a contract">
+The `Name` tag value `shortlink-api` is how **CodeDeploy** finds this server in the CI/CD guide. A typo here means deployments later report "no instances found".
+</Callout>
+</Step>
+
+<Step title="Image and size">
+| Field | Value |
+|---|---|
+| Application and OS Images | **Ubuntu** → **Ubuntu Server 24.04 LTS (HVM), SSD Volume Type** |
+| Architecture | **64-bit (x86)** |
+| Instance type | `t3.micro` |
+| Key pair | **Proceed without a key pair** |
+
+No key pair is correct: you will connect with Session Manager, not SSH.
+</Step>
+
+<Step title="Network settings">
+Choose **Edit** next to *Network settings*.
+
+| Field | Value |
+|---|---|
+| VPC | `shortlink-vpc` |
+| Subnet | the **private** subnet `10.0.11.0/24` in <Var name="AZ_A" /> |
+| Auto-assign public IP | **Disable** |
+| Firewall (security groups) | **Select existing security group** → `shortlink-api-sg` |
+
+<Callout type="warning" title="Check the subnet carefully">
+The dropdown shows subnet IDs and names. The private one has *private1* in its name and the CIDR `10.0.11.0/24`. If the instance lands in a public subnet it gets a public IP and will not match this design.
+</Callout>
+</Step>
+
+<Step title="Storage and advanced details">
+Leave storage at the default **8 GiB gp3**.
+
+Expand **Advanced details** and set:
+
+| Field | Value |
+|---|---|
+| IAM instance profile | `shortlink-ec2-role` |
+| Metadata version | **V2 only (token required)** |
+| Metadata response hop limit | `2` (so containers and tools can reach metadata later; harmless here) |
+
+Leave everything else at the default and choose **Launch instance**.
+</Step>
+
+<Step title="Wait for it to be ready">
+Open <Ui>EC2 → Instances</Ui>. Wait until **Instance state** is **Running** and **Status check** is **2/2 checks passed** (2 to 4 minutes). Copy the **Instance ID** (`i-…`) into **My values → API instance ID**.
+
+<Result>Running, 2/2 checks passed, **Public IPv4 address** is empty (`-`), and the **Private IPv4** is in `10.0.11.x`.</Result>
+</Step>
+
+## Prove you can reach it with Session Manager
+
+<Step title="Check that Systems Manager sees the instance">
+```bash title="Is the instance a managed node?" env="laptop"
+aws ssm describe-instance-information --region <AWS_REGION> \
+  --query 'InstanceInformationList[].{id:InstanceId,ping:PingStatus,os:PlatformName}' --output table
+```
+
+<Result>A row with your instance ID and `ping: Online`. It can take 3 to 5 minutes after launch.</Result>
+</Step>
+
+<Step title="Open a session in the console">
+Select the instance → **Connect** → **Session Manager** tab → **Connect**. A browser terminal opens.
+
+```bash title="First command in the session" env="ec2"
+whoami
+hostname -I
+```
+
+`whoami` prints `ssm-user`. You are not `ubuntu`, so commands that need privileges use `sudo`.
+</Step>
+
+<Details title="The Session Manager tab is greyed out, or the node never appears">
+Work through these in order:
+
+1. **Role attached?** <Ui>EC2 → Instance → Security tab</Ui> shows IAM Role `shortlink-ec2-role`. If not: <Ui>Actions → Security → Modify IAM role</Ui>.
+2. **Outbound path?** A private instance reaches Systems Manager through the **NAT gateway**. Confirm the NAT gateway is *Available* and both private route tables have `0.0.0.0/0 → nat-…`.
+3. **Security group outbound?** `shortlink-api-sg` must allow outbound HTTPS. The default (all traffic out) does.
+4. **Just wait.** The agent registers a few minutes after boot. Reboot the instance if 10 minutes pass: <Ui>Instance state → Reboot instance</Ui>.
+</Details>
+
+## Register it with the load balancer
+
+<Step title="Add the instance to the target group">
+Open <Ui>EC2 → Target Groups → shortlink-app-tg → Targets → Register targets</Ui>.
+
+1. Tick your `shortlink-api` instance.
+2. **Ports for the selected instances:** `3000`.
+3. Choose **Include as pending below**, then **Register pending targets**.
+
+<Result>The target shows **Unhealthy** with a reason like *Request timed out* or *Connection refused*. That is expected: nothing listens on port 3000 yet. The next chapter makes it healthy.</Result>
+</Step>
+
+Next: [install and start the API](/guides/deployment/api-bootstrap/).
