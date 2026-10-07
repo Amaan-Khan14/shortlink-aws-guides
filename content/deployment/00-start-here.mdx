@@ -4,15 +4,44 @@ description: What you will build, what it costs, and what to prepare.
 minutes: 10
 ---
 
-## Code block test
+## Component test
+
+<Callout type="problem" title="Do not use the original repo">
+Fork it.
+</Callout>
+
+<Step title="Create the VPC">
+Open <Ui>VPC → Your VPCs → Create VPC</Ui> and use:
 
 ```bash title="Install" env="laptop"
 aws sts get-caller-identity --region <AWS_REGION>
-echo "arn:aws:iam::<AWS_ACCOUNT_ID>:role/x" > /tmp/x
 ```
 
-Inline: <Var name="AWS_REGION" /> and <Var name="ALB_DNS" />.
+<Result>A VPC with ID `vpc-...`</Result>
+</Step>
 
-```json title="policy.json"
-{ "Resource": "arn:aws:s3:::<WEB_BUCKET>/*" }
+<Step title="Create the subnets">
+Next.
+
+- [ ] Task one
+- [ ] Task two
+</Step>
+
+<Tabs>
+<Tab label="macOS / Linux">
+
+```bash
+sed -i.bak 's/a/b/' file
 ```
+
+</Tab>
+<Tab label="Windows">
+
+Use PowerShell.
+
+</Tab>
+</Tabs>
+
+<Details title="It did not work">
+Check this.
+</Details>
