@@ -4,10 +4,15 @@ description: What you will build, what it costs, and what to prepare.
 minutes: 10
 ---
 
-## Placeholder
+## Code block test
 
-This chapter is replaced with real content later.
+```bash title="Install" env="laptop"
+aws sts get-caller-identity --region <AWS_REGION>
+echo "arn:aws:iam::<AWS_ACCOUNT_ID>:role/x" > /tmp/x
+```
 
-| Column | Value |
-|---|---|
-| One | `a` |
+Inline: <Var name="AWS_REGION" /> and <Var name="ALB_DNS" />.
+
+```json title="policy.json"
+{ "Resource": "arn:aws:s3:::<WEB_BUCKET>/*" }
+```

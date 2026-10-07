@@ -1,4 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react";
+import { Pre } from "./pre";
+import { Var } from "./var";
 
 function heading(Tag: "h2" | "h3" | "h4") {
   return function Heading({ id, children, ...rest }: ComponentPropsWithoutRef<"h2">) {
@@ -38,4 +40,6 @@ export const mdxComponents = {
   h4: heading("h4"),
   table: Table,
   a: Anchor,
+  pre: Pre,
+  Var,
 };

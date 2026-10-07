@@ -2,6 +2,7 @@ import { compileMDX } from "next-mdx-remote/rsc";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
 import { mdxComponents } from "@/components/mdx";
+import { rehypeCodeMeta } from "./rehype-code-meta";
 
 export async function renderMdx(source: string) {
   const { content } = await compileMDX({
@@ -10,7 +11,7 @@ export async function renderMdx(source: string) {
     options: {
       mdxOptions: {
         remarkPlugins: [remarkGfm],
-        rehypePlugins: [rehypeSlug],
+        rehypePlugins: [rehypeSlug, rehypeCodeMeta],
       },
     },
   });

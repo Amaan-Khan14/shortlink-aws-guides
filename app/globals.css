@@ -263,3 +263,139 @@ html.theme-ready .themed {
 .doc tr:last-child td {
   border-bottom: 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Code blocks                                                         */
+/* ------------------------------------------------------------------ */
+.codeblock {
+  margin: 1.25rem 0;
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  background: var(--code-bg);
+  overflow: hidden;
+}
+.codeblock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+  border-bottom: 1px solid var(--code-border);
+  background: var(--surface);
+  min-height: 2.4rem;
+}
+.codeblock-badge {
+  flex-shrink: 0;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.codeblock-badge-ec2 {
+  background: var(--tip-soft);
+  color: var(--tip);
+}
+.codeblock-badge-console {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.codeblock-badge-output {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.codeblock-copy:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.codeblock-body {
+  overflow-x: auto;
+}
+.codeblock-body pre {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  line-height: 1.65;
+  tab-size: 2;
+}
+.codeblock-body pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  font-family: inherit;
+}
+.codeblock-body .shiki,
+.codeblock-body .shiki span {
+  color: var(--shiki-light);
+}
+.dark .codeblock-body .shiki,
+.dark .codeblock-body .shiki span {
+  color: var(--shiki-dark);
+}
+.codeblock-output .codeblock-body .shiki,
+.codeblock-output .codeblock-body .shiki span {
+  color: var(--muted);
+}
+.codeblock-note {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid var(--code-border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.doc .codeblock-note code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Placeholders that the reader fills in under "My values" */
+.ph {
+  padding: 0 0.2em;
+  border-radius: 4px;
+  background: var(--ph-bg);
+  color: var(--ph-fg) !important;
+  font-weight: 600;
+}
+.doc .ph-inline {
+  background: var(--ph-bg);
+}
+.ph-filled {
+  background: var(--accent-soft);
+  color: var(--accent) !important;
+}
+.doc .ph-inline.ph-filled {
+  background: var(--accent-soft);
+}
+
+@media print {
+  .codeblock-copy {
+    display: none;
+  }
+  .codeblock-body {
+    overflow: visible;
+  }
+  .codeblock-body pre code {
+    width: auto;
+    white-space: pre-wrap;
+  }
+}
