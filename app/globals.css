@@ -743,3 +743,39 @@ svg.dg {
   fill: var(--muted);
   font-size: 12.5px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Small screens                                                       */
+/* ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .step {
+    gap: 0.6rem;
+  }
+  .step-rail {
+    width: 1.6rem;
+  }
+  .step-num {
+    height: 1.6rem;
+    width: 1.6rem;
+    font-size: 0.75rem;
+  }
+  .step-rail::after {
+    top: 1.8rem;
+    left: calc(0.8rem - 1px);
+  }
+  .step-head {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    min-height: 1.6rem;
+  }
+  .doc .step-title {
+    font-size: 1.02rem;
+  }
+  .result {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .doc {
+    font-size: 0.97rem;
+  }
+}

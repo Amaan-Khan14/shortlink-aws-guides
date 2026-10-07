@@ -39,7 +39,7 @@ export default function Home() {
           <Callout type="problem" title="Fork the repo first. Do not use the original.">
             <p id="fork-first">
               Your pipeline has to read <strong>your</strong> repository and your buildspec has to write to <strong>your</strong> bucket. With the original <code>{SITE.appRepo}</code> you cannot authorize AWS to read it, you cannot push to trigger a build, and its frontend deploy file points at the instructor&apos;s S3 bucket in a different AWS account, so it fails with <code>AccessDenied</code>.{" "}
-              <Link href="/guides/deployment/fork-the-repo/">Read the full explanation</Link>.
+              <Link href="/guides/deployment/fork-the-repo/" className="underline">Read the full explanation</Link>.
             </p>
           </Callout>
         </section>

@@ -51,10 +51,10 @@ Take the deployment ID from the second command and inspect it:
 
 ```bash title="Deployment details" env="laptop"
 aws deploy get-deployment --region <AWS_REGION> --deployment-id <DEPLOYMENT_ID> \
-  --query 'deploymentInfo.{status:status,creator:creator,revision:revision.s3Location.key}' --output table
+  --query 'deploymentInfo.{status:status,group:deploymentGroupName,revision:revision.s3Location.key}' --output table
 ```
 
-<Result>All three stages `Succeeded`, deployment `status: Succeeded` and `creator: CodeDeployGateway` (the pipeline started it).</Result>
+<Result>All three stages `Succeeded`, and the deployment shows `status: Succeeded` for group `shortlink-api-prod`, with a revision key that begins with your pipeline name (`shortlink-api-prod/`), proving the pipeline created it.</Result>
 </Step>
 
 <Step title="Check the server is now running the managed copy">
