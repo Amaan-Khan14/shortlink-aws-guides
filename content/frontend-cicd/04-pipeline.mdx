@@ -1,0 +1,156 @@
+---
+title: Create the pipeline
+description: Source and Build from the wizard, then add the deploy stage with its own CodeBuild project.
+minutes: 30
+---
+
+You build this pipeline in two passes. The wizard creates **Source** and **Build**. Then you edit the pipeline to add a **DeployWeb** stage, because the wizard's Deploy step cannot run `aws s3 sync --delete` with your cache headers, but a CodeBuild project can.
+
+<Callout type="note" title="Why not the built-in 'Amazon S3' deploy action?">
+CodePipeline has a native S3 deploy action. It can extract a ZIP into a bucket, but it **never deletes** files that disappeared from the build, so stale JavaScript and CSS pile up, and it cannot easily set `no-cache` only on `index.html`. A small CodeBuild step does both.
+</Callout>
+
+## Pass 1: the wizard
+
+<Step title="Pipeline settings">
+Open <Ui>CodePipeline → Pipelines → Create pipeline</Ui>, choose **Build custom pipeline**, **Next**.
+
+| Field | Value |
+|---|---|
+| Pipeline name | `shortlink-web-prod` |
+| Pipeline type | **V2** |
+| Execution mode | **Queued** |
+| Service role | **New service role** |
+
+Leave the artifact store on **Default location**. It is a private `codepipeline-<region>-…` bucket, **not** your website bucket. Choose **Next**.
+</Step>
+
+<Step title="Source">
+| Field | Value |
+|---|---|
+| Source provider | **GitHub (via GitHub App)** |
+| Connection | `shortlink-github` |
+| Repository name | <Var name="GITHUB_USER" />/<Var name="REPO_NAME" /> (**your fork**) |
+| Default branch | `main` |
+| Output artifact format | **CodePipeline default** |
+
+Under **Trigger** keep **Start the pipeline on source code change** and add:
+
+| Field | Value |
+|---|---|
+| Event type | **Push** |
+| Branches → Include | `main` |
+| File paths → Include | `shortlink-web/**`, `deploy/buildspec-web.yml`, `deploy/buildspec-web-deploy.yml` |
+
+Only commits that change the website or its buildspecs publish a new site. Choose **Next**.
+</Step>
+
+<Step title="Build: create shortlink-web-build">
+| Field | Value |
+|---|---|
+| Build provider | **Other build providers → AWS CodeBuild** |
+| Region | <Var name="AWS_REGION" /> |
+| Project name | **Create project** |
+
+In the CodeBuild form:
+
+| Field | Value |
+|---|---|
+| Project name | `shortlink-web-build` |
+| Project type | **Default project** |
+| Environment image | **Managed image** |
+| Compute | **EC2** |
+| Operating system / Runtime | **Amazon Linux** / **Standard** |
+| Image | `aws/codebuild/amazonlinux-x86_64-standard:5.0` (or the newest *standard* image) |
+| Compute size | **3 GB memory, 2 vCPUs** or larger (the reference setup used medium) |
+| Service role | **New service role** |
+| Buildspec | **Use a buildspec file** → `deploy/buildspec-web.yml` |
+| Logs | CloudWatch logs ticked |
+
+Open **Additional configuration** and add the environment variable that tells the site where the API is:
+
+| Name | Value | Type |
+|---|---|---|
+| `VITE_API_BASE_URL` | <Var name="API_URL" /> | **Plaintext** |
+
+<Callout type="danger" title="This value is public, and it is baked in at build time">
+Anyone can read it in the page's JavaScript. Use only the public API address, never a secret. If the address changes later, edit this variable and **run the pipeline again**: the old value stays inside the already-built files until you rebuild.
+</Callout>
+
+Choose **Continue to CodePipeline**. Check **Input artifacts** is `SourceArtifact`, **Build type** is **Single build**, and leave the output artifact as `BuildArtifact`. Choose **Next**.
+</Step>
+
+<Step title="Test and Deploy: skip both">
+Choose **Skip test stage**, then **Skip deploy stage** (confirm each). Choose **Create pipeline**.
+
+The pipeline runs **Source → Build** once. When Build is green, you have a working build. Nothing is published yet.
+</Step>
+
+## Pass 2: add the deploy stage
+
+<Step title="Edit the pipeline and add a stage">
+Open the pipeline and choose **Edit**. Under the **Build** stage choose **+ Add stage**, name it `DeployWeb`, and **Add stage**. In the new stage choose **+ Add action group**.
+</Step>
+
+<Step title="Configure the WebDeploy action">
+| Field | Value |
+|---|---|
+| Action name | `WebDeploy` |
+| Action provider | **AWS CodeBuild** (listed under *Build*) |
+| Region | <Var name="AWS_REGION" /> |
+| Input artifacts | `BuildArtifact` |
+| Project name | **Create project** |
+
+In the CodeBuild form:
+
+| Field | Value |
+|---|---|
+| Project name | `shortlink-web-deploy` |
+| Project type | **Default project** |
+| Environment | same as the build project: managed image, EC2, Amazon Linux, Standard, 5.0 |
+| Compute size | the smallest is fine |
+| Service role | **New service role** |
+| Buildspec | **Use a buildspec file** → `deploy/buildspec-web-deploy.yml` |
+| Environment variables | none |
+
+Choose **Continue to CodePipeline**, set **Build type** to **Single build**, leave **Output artifacts** empty, and choose **Done**. Then **Done** on the stage, and **Save** the pipeline (confirm).
+
+<Callout type="note" title="Where does the buildspec come from?">
+The deploy project reads `deploy/buildspec-web-deploy.yml` from its **input artifact** (`BuildArtifact`), not from GitHub. That is why the build stage ships the file inside the artifact. Your edit from the previous chapter is what travels.
+</Callout>
+</Step>
+
+<Step title="Verify the structure">
+```bash title="Show stages and actions" env="laptop"
+aws codepipeline get-pipeline --region <AWS_REGION> --name shortlink-web-prod \
+  --query 'pipeline.stages[].{stage:name,actions:actions[].{action:name,provider:actionTypeId.provider,project:configuration.ProjectName,in:inputArtifacts[].name,out:outputArtifacts[].name}}' \
+  --output json
+```
+
+<Result>Three stages in order: **Source** → **Build** (`shortlink-web-build`, in `SourceArtifact`, out `BuildArtifact`) → **DeployWeb** (`WebDeploy`, `shortlink-web-deploy`, in `BuildArtifact`, no output).</Result>
+
+Confirm both CodeBuild projects run in pipeline mode:
+
+```bash title="Both projects must use the CODEPIPELINE types" env="laptop"
+aws codebuild batch-get-projects --region <AWS_REGION> --names shortlink-web-build shortlink-web-deploy \
+  --query 'projects[].{name:name,source:source.type,artifacts:artifacts.type,buildspec:source.buildspec,webhook:webhook.url}' --output table
+```
+
+`source` and `artifacts` must both be `CODEPIPELINE` and `webhook` must be empty. Projects created from inside the pipeline editor are right already.
+</Step>
+
+<Details title="My CodeBuild projects show GitHub as the source, or a webhook is set">
+That happens when a project was created in the CodeBuild console on its own, before being added to the pipeline. A direct webhook would also start builds that bypass the pipeline. Remove it and switch the types:
+
+```bash title="Fix a project created outside the pipeline" env="laptop"
+aws codebuild delete-webhook --region <AWS_REGION> --project-name shortlink-web-deploy
+aws codebuild update-project --region <AWS_REGION> --name shortlink-web-build \
+  --source 'type=CODEPIPELINE,buildspec=deploy/buildspec-web.yml' --artifacts 'type=CODEPIPELINE'
+aws codebuild update-project --region <AWS_REGION> --name shortlink-web-deploy \
+  --source 'type=CODEPIPELINE,buildspec=deploy/buildspec-web-deploy.yml' --artifacts 'type=CODEPIPELINE'
+```
+
+Skip `delete-webhook` if the project has no webhook. Note that the deploy project needs `artifacts` of type `CODEPIPELINE` too, even though it produces no output: CodeBuild checks source and artifact types together and rejects `NO_ARTIFACTS` when the source is `CODEPIPELINE`.
+</Details>
+
+Next: [give the deploy project permission to write to S3](/guides/frontend-cicd/permissions/).

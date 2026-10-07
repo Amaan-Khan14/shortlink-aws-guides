@@ -1,0 +1,123 @@
+---
+title: Permissions for publishing
+description: Let the deploy project write to your website bucket, and check that the pipeline can start both builds.
+minutes: 15
+---
+
+Three different identities touch your website, and each needs a different permission. Mixing them up is the most common reason the first deploy fails.
+
+| Identity | Needs | Where it is granted |
+|---|---|---|
+| **Anyone on the internet** | Read files (`s3:GetObject`) | The **bucket policy** (guide 1, chapter 8) |
+| **The `shortlink-web-deploy` project's role** | List, write and delete objects in your bucket | An **inline policy on that role** (this chapter) |
+| **The pipeline's service role** | Start both CodeBuild projects | The pipeline role (checked here) |
+
+<Callout type="warning" title="Do not make the bucket writable by everyone">
+Public **read** is what makes a website work. Public **write** would let anyone replace your site. Writing is granted only to one IAM role.
+</Callout>
+
+## Find the role name
+
+<Step title="Look up the deploy project's service role">
+```bash title="Which role does the deploy project run as?" env="laptop"
+aws codebuild batch-get-projects --region <AWS_REGION> --names shortlink-web-deploy \
+  --query 'projects[0].serviceRole' --output text
+```
+
+The last part of the ARN is the role name, normally `codebuild-shortlink-web-deploy-service-role`.
+</Step>
+
+## Let it write to the bucket
+
+<Step title="Add the inline policy">
+Open <Ui>IAM → Roles → codebuild-shortlink-web-deploy-service-role → Permissions → Add permissions → Create inline policy → JSON</Ui>. Name it `shortlink-web-deploy-website-sync`.
+
+```json title="shortlink-web-deploy-website-sync" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<WEB_BUCKET>"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::<WEB_BUCKET>/*"
+    }
+  ]
+}
+```
+
+Two statements are needed because `ListBucket` applies to the **bucket** ARN (`…:bucket`), while the object actions apply to the **objects** (`…:bucket/*`). `aws s3 sync` lists first to work out what changed, and `--delete` needs `DeleteObject`. Without the first statement you get a confusing `AccessDenied` on `ListObjectsV2`.
+
+<Callout type="note" title="Account ID and bucket policy">
+The bucket belongs to your account and the role is in your account, so this identity policy alone is enough. You do not need to change the bucket policy.
+</Callout>
+</Step>
+
+<Step title="Check the role can also read the pipeline artifact">
+The role that the wizard created for this project normally includes read access to the `codepipeline-<region>-…` bucket. Verify:
+
+```bash title="List the role's policies" env="laptop"
+aws iam list-attached-role-policies --role-name codebuild-shortlink-web-deploy-service-role --output table
+aws iam list-role-policies --role-name codebuild-shortlink-web-deploy-service-role --output table
+```
+
+<Result>An attached policy named like `CodeBuildBasePolicy-shortlink-web-deploy-<region>` (logs and artifact bucket), and your inline `shortlink-web-deploy-website-sync`.</Result>
+
+<Details title="Deploy fails with AccessDenied on the artifact bucket">
+Add this inline policy to the same role, naming it `shortlink-web-deploy-artifacts-read`:
+
+```json title="shortlink-web-deploy-artifacts-read" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:GetBucketLocation"],
+      "Resource": ["arn:aws:s3:::<ARTIFACT_BUCKET>", "arn:aws:s3:::<ARTIFACT_BUCKET>/*"]
+    }
+  ]
+}
+```
+
+Find the bucket with `aws codepipeline get-pipeline --name shortlink-web-prod --query pipeline.artifactStore.location --output text`.
+</Details>
+</Step>
+
+## Let the pipeline start both builds
+
+<Step title="Add an inline policy to the pipeline role">
+The wizard grants `codebuild:StartBuild` for the project you created in it. When you added the second project in the editor the console may **not** have extended the policy. If the pipeline role cannot start a project, the action fails in CodePipeline **before any CodeBuild log exists**, which is confusing. Adding this is harmless if it is already allowed.
+
+Find the role: `aws codepipeline get-pipeline --region <AWS_REGION> --name shortlink-web-prod --query pipeline.roleArn --output text`. Then <Ui>IAM → Roles → (that role) → Permissions → Add permissions → Create inline policy → JSON</Ui>, name `shortlink-web-start-builds`:
+
+```json title="shortlink-web-start-builds" env="console"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
+      "Resource": [
+        "arn:aws:codebuild:<AWS_REGION>:<AWS_ACCOUNT_ID>:project/shortlink-web-build",
+        "arn:aws:codebuild:<AWS_REGION>:<AWS_ACCOUNT_ID>:project/shortlink-web-deploy"
+      ]
+    }
+  ]
+}
+```
+</Step>
+
+## What each failure means
+
+| Error text | Identity to fix |
+|---|---|
+| `AccessDenied` on `s3:ListBucket`, `PutObject` or `DeleteObject` in the **WebDeploy** log | `codebuild-shortlink-web-deploy-service-role` |
+| `not authorized to perform: codebuild:StartBuild` with **no CodeBuild log** | The pipeline service role |
+| The site returns 403 after a successful deploy | The **bucket policy** (public read), not the roles |
+| `AccessDenied` listing a bucket you do not own | The buildspec still points at someone else's bucket. Redo the previous chapter |
+
+Next: [run the first release](/guides/frontend-cicd/first-release/).
