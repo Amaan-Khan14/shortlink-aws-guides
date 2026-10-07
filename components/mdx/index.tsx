@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { isValidElement, type ComponentPropsWithoutRef } from "react";
+import { ALL_KEYS } from "@/lib/variables";
 import { Diagram } from "../diagrams";
 import { Callout } from "./callout";
 import { Details, Result, Ui } from "./misc";
+import { PlaceholderCode } from "./inline-code";
 import { Pre } from "./pre";
 import { Step } from "./step";
 import { Tab, Tabs } from "./tabs";
@@ -32,11 +35,30 @@ function Table(props: ComponentPropsWithoutRef<"table">) {
 }
 
 function Anchor({ href = "", children, ...rest }: ComponentPropsWithoutRef<"a">) {
+  if (href.startsWith("/")) {
+    return (
+      <Link href={href} {...rest}>
+        {children}
+      </Link>
+    );
+  }
   const external = /^https?:\/\//.test(href);
   return (
     <a href={href} {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})} {...rest}>
       {children}
     </a>
+  );
+}
+
+function Code({ children, className, ...rest }: ComponentPropsWithoutRef<"code">) {
+  if (typeof children === "string" && !className) {
+    const names = [...children.matchAll(/<([A-Z][A-Z0-9_]*)>/g)].map((m) => m[1]);
+    if (names.some((n) => ALL_KEYS.includes(n))) return <PlaceholderCode text={children} />;
+  }
+  return (
+    <code className={className} {...rest}>
+      {children}
+    </code>
   );
 }
 
@@ -75,6 +97,7 @@ export const mdxComponents = {
   table: Table,
   a: Anchor,
   li: ListItem,
+  code: Code,
   pre: Pre,
   Var,
   Callout,

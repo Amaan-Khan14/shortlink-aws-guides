@@ -1,0 +1,134 @@
+---
+title: Fork the repository
+description: Why you must work from your own fork, and how to fork, clone and test it.
+minutes: 15
+---
+
+## Why you must fork, and what breaks if you do not
+
+The workshop app lives in a public repository owned by the instructor: `Amaan-Khan14/shortlink`. It is tempting to skip the fork and use that repository directly, because cloning works without one. Do not. Four things go wrong, and the first two only show up later, in the CI/CD guides.
+
+<Callout type="problem" title="The problem with using the original repository">
+
+1. **AWS cannot be allowed to read it.** CodePipeline reads GitHub through a *CodeConnections* GitHub App. Installing that app on a repository needs **owner** (or organisation admin) rights on that repository. You are not the owner of the instructor's repo, so you cannot grant your AWS account access to it.
+2. **You cannot trigger a pipeline.** A pipeline starts when a commit is pushed to `main`. You have no push access to someone else's repository, so nothing you change would ever reach your AWS account. You would have no CI/CD to practise on.
+3. **The frontend deploy writes to the wrong account.** `deploy/buildspec-web-deploy.yml` in the original repo contains the instructor's S3 bucket name. S3 bucket names are global, so that bucket exists, but in a different AWS account. Your deploy role has no permission there and the build fails with `AccessDenied`. (If it did have permission, it would overwrite someone else's website.)
+4. **There is no isolation.** Anything the instructor pushes would change what *your* pipeline deploys, and the other way round. Twenty people on one repository means twenty pipelines racing each other.
+
+</Callout>
+
+A **fork** is your own copy under your own GitHub account. You can push to it, you can install the GitHub App on it, and you can edit files such as the buildspec without affecting anyone else. You can still pull in future instructor changes from the original (called *upstream*).
+
+## Fork and clone
+
+<Step title="Fork the repository on GitHub">
+Open [github.com/Amaan-Khan14/shortlink](https://github.com/Amaan-Khan14/shortlink) and click <Ui>Fork → Create a new fork</Ui>.
+
+- **Owner:** your own GitHub account (not an organisation you do not control).
+- **Repository name:** keep `shortlink` unless you have a reason to rename it. If you rename it, enter the new name under **My values**.
+- **Copy the `main` branch only:** leave this checked.
+
+Click **Create fork**.
+
+<Result>Your browser shows `github.com/<GITHUB_USER>/shortlink` with the line “forked from Amaan-Khan14/shortlink”.</Result>
+
+<Callout type="note">
+Keep the fork **public**. The EC2 instance clones it over HTTPS with no credentials, which only works for a public repository. A private fork needs an access token on the server, which this guide deliberately avoids.
+</Callout>
+</Step>
+
+<Step title="Save your GitHub username">
+Click **My values** in the header, enter your GitHub username (and the repository name if you changed it). The commands below and in later chapters will then use your fork.
+</Step>
+
+<Step title="Clone your fork">
+Run this on your computer, in the folder where you keep projects.
+
+```bash title="Clone your fork" env="laptop"
+git clone https://github.com/<GITHUB_USER>/<REPO_NAME>.git
+cd <REPO_NAME>
+```
+
+Confirm you cloned **your** fork, not the original:
+
+```bash title="Check the remote" env="laptop"
+git remote -v
+```
+
+```text env="output"
+origin  https://github.com/your-username/shortlink.git (fetch)
+origin  https://github.com/your-username/shortlink.git (push)
+```
+
+If the URL contains `Amaan-Khan14`, you cloned the original. Delete the folder and clone again from your fork's URL.
+</Step>
+
+<Step title="Add the original as upstream (optional)">
+This lets you pull in later fixes from the instructor.
+
+```bash title="Add upstream" env="laptop"
+git remote add upstream https://github.com/Amaan-Khan14/shortlink.git
+git remote -v
+```
+
+To update your fork later: `git fetch upstream`, then `git merge upstream/main`, then `git push origin main`.
+</Step>
+
+## Look around the repository
+
+```text title="Repository layout"
+shortlink/
+├── shortlink-api/            Node.js 20 + Express + PostgreSQL backend
+│   ├── src/                  application code
+│   ├── db/schema.sql         database schema (applied by scripts/init-db.js)
+│   └── scripts/init-db.js    idempotent schema installer
+├── shortlink-web/            React 18 + Vite frontend
+├── appspec.yml               CodeDeploy instructions (guide 2)
+└── deploy/
+    ├── buildspec-api.yml     CodeBuild: test and package the API (guide 2)
+    ├── buildspec-web.yml     CodeBuild: test and build the website (guide 3)
+    ├── buildspec-web-deploy.yml   CodeBuild: sync the build to S3 (guide 3)
+    └── hooks/                CodeDeploy lifecycle scripts (guide 2)
+```
+
+You do not need to understand the CI/CD files yet. They are explained when you use them.
+
+## Run the tests
+
+This proves your computer and your copy of the code are healthy before you spend any money.
+
+<Step title="Test the API">
+The API tests use mocks and need no database.
+
+```bash title="API tests" env="laptop"
+cd shortlink-api
+npm ci
+npm test
+cd ..
+```
+
+<Result>`Tests: 36 passed, 36 total`</Result>
+</Step>
+
+<Step title="Test the website">
+```bash title="Web tests" env="laptop"
+cd shortlink-web
+npm ci
+npm test
+cd ..
+```
+
+<Result>`Tests: 23 passed (23)`</Result>
+</Step>
+
+<Details title="Tests fail or npm ci errors">
+- `npm ci` needs a lockfile and Node 20 or newer. Run `node --version`. If it is older, install Node 22 LTS and try again.
+- On a corporate network `npm ci` may fail to reach the registry. Try a personal network or ask your instructor for a proxy setting.
+- If you edited files in the fork, run `git status` to see what changed, then `git stash` to set the changes aside while you debug.
+</Details>
+
+<Callout type="tip" title="Want to see it run locally first?">
+You can run the whole app on your computer with a local PostgreSQL: copy `shortlink-api/.env.example` to `.env`, run `npm run db:init` and `npm run dev` in `shortlink-api`, then `npm run dev` in `shortlink-web`. The repository README has the details. It is optional for this guide.
+</Callout>
+
+Next: [build the network](/guides/deployment/network/).

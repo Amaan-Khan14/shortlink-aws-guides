@@ -1,0 +1,85 @@
+---
+title: Start here
+description: What you will build, what it costs, and what to prepare before you touch the console.
+minutes: 10
+---
+
+By the end of this guide you will have ShortLink running in **your own AWS account**: a React website on S3, a Node.js API on a private EC2 instance behind a load balancer, and a private PostgreSQL database on RDS. You will create every resource by hand in the console so you understand what each one is for.
+
+<Callout type="problem" title="Fork the repo. Do not use the original.">
+Everything in these guides assumes you work from **your own fork** of the app repository. If you point AWS at the original repository instead, the pipeline cannot read it, you cannot push to start a build, and the frontend deploy file writes to a bucket in someone else's account. The next chapter explains each failure in detail and walks you through the fork.
+</Callout>
+
+## What you will build
+
+<Diagram name="architecture" />
+
+| Piece | AWS service | What it does |
+|---|---|---|
+| Website | S3 static website hosting | Serves the built React app over HTTP |
+| API | EC2 (Ubuntu, Node.js) in a **private** subnet | Runs the Express API as a systemd service |
+| Entry point | Application Load Balancer | Receives public HTTP traffic and forwards it to the API on port 3000 |
+| Database | RDS PostgreSQL in **private** subnets | Stores links, clicks and collections |
+| Network | VPC, subnets, NAT gateway, S3 endpoint | Keeps the API and database off the public internet |
+| Access | IAM role + Systems Manager Session Manager | Shell access without SSH keys or open port 22 |
+
+<Callout type="note" title="Why HTTP and not HTTPS?">
+This workshop deployment has no custom domain and does not use CloudFront, so there is no certificate and both the website and the API are served over plain HTTP. That is fine for learning and unacceptable for real users. New AWS accounts on a restricted free plan can also be blocked from creating CloudFront distributions, which is one more reason this path avoids it. Chapter 12 lists what to add for production.
+</Callout>
+
+## Time and cost
+
+- **Time:** about 2 to 3 hours the first time. The slow parts are waiting: RDS takes 5 to 10 minutes, the NAT gateway and load balancer 2 to 3 minutes each.
+- **Cost:** while everything runs, expect roughly **US$3 per day** (estimate; prices vary by Region and change). The NAT gateway, the load balancer and the database make up most of it. Nothing here is free-tier-only.
+- **Stop the meter:** when you finish, follow the **Clean up** chapter. Deleting the NAT gateway and the load balancer alone cuts the bill by more than half.
+
+<Callout type="warning" title="Set a budget alarm before you start">
+Open <Ui>Billing and Cost Management → Budgets → Create budget</Ui>, choose the **Zero spend** or **Monthly cost** template, and add your email. It takes two minutes and protects you from a forgotten NAT gateway.
+</Callout>
+
+## Before you begin
+
+Tick these off. The boxes remember your answers in this browser.
+
+- [ ] An **AWS account** where you can create VPCs, EC2, RDS, S3, IAM roles and load balancers (an admin user or role is simplest). Do **not** use the root user for daily work.
+- [ ] A **GitHub account** (you will fork the repository in the next chapter).
+- [ ] **Git** installed on your computer (`git --version`).
+- [ ] **Node.js 20 or newer** and npm on your computer (`node --version`). Node 22 LTS is a good choice.
+- [ ] The **AWS CLI v2** on your computer, signed in to your account (`aws sts get-caller-identity` prints your account ID).
+- [ ] A **password manager or a safe note** for the database password you will create.
+- [ ] A **single Region** chosen for everything. These guides were verified in `ap-south-1` (Mumbai). Pick one and stay in it, because the console quietly switches Regions less often than you would hope.
+
+<Details title="How do I check that the AWS CLI is signed in?">
+
+```bash title="Check your AWS CLI identity" env="laptop"
+aws sts get-caller-identity
+```
+
+You should get JSON with `Account`, `UserId` and `Arn`. If you get `Unable to locate credentials`, sign in with `aws login`, `aws configure sso` or `aws configure`, whichever your organisation uses, then try again. Copy the `Account` value into **My values** at the top of this page.
+
+</Details>
+
+## How these guides work
+
+- Commands are tagged with **where to run them**: <span className="codeblock-badge">Your computer</span> a terminal on your laptop, <span className="codeblock-badge codeblock-badge-ec2">On the EC2 instance</span> a Session Manager shell, or <span className="codeblock-badge codeblock-badge-console">Paste in the AWS console</span> a JSON policy for the console editor.
+- Highlighted text such as <Var name="AWS_ACCOUNT_ID" /> is a **placeholder**. Click **My values** in the header, fill in what you know, and every command on the site updates. The Copy button copies your real values.
+- Console paths look like <Ui>VPC → Your VPCs → Create VPC</Ui>. Search the console for the first word if you cannot find it.
+- After each important step there is a **You should see** box. If you do not see it, stop and fix it before moving on. Problems compound.
+
+## Names used everywhere
+
+Use these names **exactly**. Later chapters (and the CI/CD guides) refer to them in IAM policies, deployment groups and pipelines.
+
+| Resource | Name |
+|---|---|
+| VPC | `shortlink-vpc` |
+| Security groups | `shortlink-alb-sg`, `shortlink-api-sg`, `shortlink-db-sg` |
+| DB subnet group | `shortlink-db-subnets` |
+| RDS instance / database | `shortlink-db` / `shortlink` |
+| IAM role for EC2 | `shortlink-ec2-role` |
+| Target group / load balancer | `shortlink-app-tg` / `shortlink-alb` |
+| EC2 instance (`Name` tag) | `shortlink-api` |
+| Website bucket | <Var name="WEB_BUCKET" /> (must be globally unique) |
+| systemd service / env file | `shortlink-api` / `/etc/shortlink/shortlink.env` |
+
+Next: [fork the repository](/guides/deployment/fork-the-repo/).
