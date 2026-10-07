@@ -2,7 +2,7 @@
 
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const order = ["system", "light", "dark"] as const;
 type Mode = (typeof order)[number];
@@ -15,9 +15,12 @@ const labels: Record<Mode, string> = {
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  // false on the server and during hydration, true afterwards: avoids a theme-icon mismatch.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const current: Mode = mounted && (theme === "light" || theme === "dark") ? theme : "system";
   const next = order[(order.indexOf(current) + 1) % order.length];
