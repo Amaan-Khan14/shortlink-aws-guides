@@ -1,0 +1,49 @@
+---
+title: Connect AWS to your fork
+description: Reuse or create the GitHub connection that lets CodePipeline read your fork.
+minutes: 8
+---
+
+CodePipeline reads GitHub through a **connection**, an installation of the *AWS Connector for GitHub* app that you authorize on **your** fork.
+
+<Callout type="problem" title="Why your own fork, again">
+Installing the app needs owner rights on the repository, and a pipeline starts from commits you push. Neither is possible on the instructor's original repository. See the *Fork the repository* chapter in guide 1.
+</Callout>
+
+## If you already did guide 2
+
+You already have a connection called `shortlink-github`. Check it and reuse it.
+
+```bash title="Is the connection usable?" env="laptop"
+aws codeconnections list-connections --region <AWS_REGION> --provider-type-filter GitHub \
+  --query 'Connections[].{name:ConnectionName,status:ConnectionStatus,arn:ConnectionArn}' --output table
+```
+
+If `shortlink-github` shows `AVAILABLE`, copy its ARN into **My values → GitHub connection ARN** and skip to the [next chapter](/guides/frontend-cicd/pipeline/).
+
+## If this is your first pipeline
+
+<Step title="Create the connection">
+Open <Ui>Developer Tools → Settings → Connections → Create connection</Ui> in <Var name="AWS_REGION" />.
+
+| Field | Value |
+|---|---|
+| Select a provider | **GitHub** |
+| Connection name | `shortlink-github` |
+
+Choose **Connect to GitHub**.
+</Step>
+
+<Step title="Install the app on your fork only">
+In the GitHub window: **Authorize AWS Connector for GitHub**, then back in the AWS dialog choose **Install a new app**. On GitHub choose your **personal account**, select **Only select repositories**, pick <Var name="GITHUB_USER" />/<Var name="REPO_NAME" />, and choose **Install**.
+
+Back in AWS, select the new installation, choose **Connect**, then **Create connection**.
+
+<Result>Status **Available**. A **Pending** connection cannot source a pipeline: open it and choose **Update pending connection**.</Result>
+</Step>
+
+<Step title="Save the ARN">
+Run the command above and copy the `arn` into **My values → GitHub connection ARN**.
+</Step>
+
+Next: [create the pipeline](/guides/frontend-cicd/pipeline/).

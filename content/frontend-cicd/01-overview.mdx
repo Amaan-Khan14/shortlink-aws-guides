@@ -1,0 +1,62 @@
+---
+title: Overview and prerequisites
+description: How a push to your fork becomes a new website on S3, and what must already exist.
+minutes: 10
+---
+
+In guide 1 you built the website on your laptop and uploaded it with `aws s3 sync`. Here AWS does that for you: every push to `main` on **your fork** is tested, built with the correct API address baked in, and synced to your S3 website bucket.
+
+<Diagram name="pipeline-web" />
+
+## What happens on every push
+
+1. You push a commit to `main` on your fork.
+2. **CodePipeline** starts, downloads the commit into the private artifact bucket (**Source**).
+3. **Build (CodeBuild project `shortlink-web-build`):** runs `npm ci`, the 23 frontend tests, then `vite build`. The environment variable `VITE_API_BASE_URL` is set on this project, so your load balancer's address is compiled into the JavaScript. Output: the `dist/` folder, plus the *deploy* buildspec, packaged as `BuildArtifact`.
+4. **DeployWeb (CodeBuild project `shortlink-web-deploy`):** unpacks `BuildArtifact` and runs `aws s3 sync … --delete` into your website bucket, then re-uploads `index.html` with `Cache-Control: no-cache`.
+5. Visitors get the new site on their next load. There is no server and no downtime.
+
+<Callout type="note" title="Why two CodeBuild projects?">
+The first *builds* and has no write access to your website. The second only *publishes* and has no need for source code or build tools. Splitting them keeps the permission that can overwrite your public site small and separate. It also lets you retry just the publish step.
+</Callout>
+
+## The one thing that is different from the backend
+
+The deploy step needs your **bucket name**, and the file that does the syncing lives in the repository. That is where a fork matters most.
+
+<Callout type="problem" title="The original repository's deploy file points at someone else's bucket">
+`deploy/buildspec-web-deploy.yml` in the instructor's repository syncs to the instructor's bucket in the instructor's AWS account. A pipeline built from the original repository (or from a fork you did not edit) tries to write there. Your deploy role has no permission in that account, so the build fails with `AccessDenied`. The next chapter has you change it to <Var name="WEB_BUCKET" /> in **your fork**.
+</Callout>
+
+## Before you begin
+
+You need the deployment from guide 1, at least chapters 1 to 11.
+
+- [ ] The website loads at <Var name="WEB_URL" /> and the badge says **API online**.
+- [ ] You know your **bucket name** (<Var name="WEB_BUCKET" />) and your **load balancer** address (<Var name="API_URL" />). Check **My values**.
+- [ ] You can `git push` to your fork.
+- [ ] The bucket allows public read through its **bucket policy** (guide 1, chapter 8). The pipeline only needs *write* access, which you add in this guide.
+
+```bash title="Quick checks" env="laptop"
+curl -sI <WEB_URL>/ | head -n 1
+aws s3 ls s3://<WEB_BUCKET>/ --region <AWS_REGION>
+```
+
+<Result>`HTTP/1.1 200 OK`, and a listing with `index.html` and an `assets/` folder at the top level.</Result>
+
+## Names used in this guide
+
+| Resource | Name |
+|---|---|
+| GitHub connection | `shortlink-github` (reuse it if you made it in guide 2) |
+| Pipeline | `shortlink-web-prod` |
+| Build project | `shortlink-web-build` |
+| Deploy project | `shortlink-web-deploy` |
+| Pipeline artifact | `BuildArtifact` |
+| Website bucket | <Var name="WEB_BUCKET" /> |
+
+<Callout type="tip" title="Doing both guides?">
+Guides 2 and 3 create **two separate pipelines** with different file-path filters, so a commit that changes only `shortlink-web/` runs the website pipeline and a commit that changes only `shortlink-api/` runs the API one. They do not conflict. They can share the same GitHub connection.
+</Callout>
+
+Next: [edit the deploy file in your fork](/guides/frontend-cicd/repo-files/).

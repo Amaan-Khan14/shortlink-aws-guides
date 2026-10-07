@@ -1,0 +1,155 @@
+---
+title: Point the deploy file at your bucket
+description: Read the two buildspecs, then change the hard-coded bucket in your fork. This is the step that makes the original repo unusable.
+minutes: 15
+---
+
+Two files drive the frontend pipeline. One of them contains something that must be edited for **your** AWS account.
+
+## buildspec-web.yml: test and build
+
+```yaml title="deploy/buildspec-web.yml"
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+  build:
+    commands:
+      - npm --prefix shortlink-web ci
+      - npm --prefix shortlink-web test
+      - npm --prefix shortlink-web run build
+artifacts:
+  files:
+    - shortlink-web/dist/**/*
+    - deploy/buildspec-web-deploy.yml
+  exclude-paths:
+    - shortlink-web/dist/**/*.map
+```
+
+- It installs, tests and builds. Any failing command stops the pipeline before anything is published.
+- The `artifacts` list contains the built site **and** the next stage's buildspec. The deploy project reads its buildspec from the artifact it receives, which is why that file is shipped along.
+- Source maps (`*.map`) are left out of the artifact, so they never reach the public bucket.
+- `VITE_API_BASE_URL` is **not** in this file. It is set as an environment variable on the CodeBuild project (next chapters), so the API address is configuration, not code.
+
+## buildspec-web-deploy.yml: publish to S3
+
+This is the file **as it exists in the original repository**. Look at the bucket name:
+
+```yaml title="deploy/buildspec-web-deploy.yml (original)"
+version: 0.2
+phases:
+  build:
+    commands:
+      - test -f shortlink-web/dist/index.html
+      - aws s3 sync shortlink-web/dist/ s3://INSTRUCTORS-BUCKET-NAME/ --delete --region INSTRUCTORS-REGION
+      - aws s3 cp shortlink-web/dist/index.html s3://INSTRUCTORS-BUCKET-NAME/index.html --cache-control 'no-cache' --content-type 'text/html' --region INSTRUCTORS-REGION
+```
+
+(In the real file `INSTRUCTORS-BUCKET-NAME` is a concrete bucket that belongs to the instructor's AWS account.)
+
+| Command | Purpose |
+|---|---|
+| `test -f …/index.html` | A safety check: if the build produced no home page, stop *before* `--delete` can empty the site |
+| `aws s3 sync … --delete` | Make the bucket match the build exactly: upload new files, remove old ones |
+| `aws s3 cp … index.html --cache-control 'no-cache'` | Hashed asset files can be cached forever, but `index.html` must be re-checked on every visit so visitors see new releases |
+
+<Callout type="problem" title="Why you cannot use the file as it is">
+S3 bucket names are **global**. The name in this file refers to a bucket in another AWS account, so `aws s3 sync` from **your** deploy role gets `AccessDenied`. The bucket you created in guide 1 has a different name. Every participant must change this file in their own fork.
+</Callout>
+
+## Change it in your fork
+
+<Step title="Make sure you are on main in your own clone">
+```bash title="Start from a clean main" env="laptop"
+git switch main
+git pull origin main
+git remote -v
+```
+
+The `origin` URL must contain your username.
+</Step>
+
+<Step title="Replace the bucket and the Region">
+This changes **every** `s3://…` bucket and every `--region …` in the file, so you cannot miss one.
+
+<Tabs>
+<Tab label="macOS / Linux">
+
+```bash title="Edit deploy/buildspec-web-deploy.yml" env="laptop"
+sed -i.bak -E 's#s3://[^/ ]+#s3://<WEB_BUCKET>#g; s#--region [a-z0-9-]+#--region <AWS_REGION>#g' deploy/buildspec-web-deploy.yml
+rm deploy/buildspec-web-deploy.yml.bak
+```
+
+</Tab>
+<Tab label="Windows (PowerShell)">
+
+```powershell title="Edit deploy/buildspec-web-deploy.yml" env="laptop"
+(Get-Content deploy/buildspec-web-deploy.yml) `
+  -replace 's3://[^/ ]+', 's3://<WEB_BUCKET>' `
+  -replace '--region [a-z0-9-]+', '--region <AWS_REGION>' |
+  Set-Content deploy/buildspec-web-deploy.yml
+```
+
+</Tab>
+<Tab label="Any editor">
+
+Open `deploy/buildspec-web-deploy.yml` and replace the bucket name (three places: two `s3://…` and the one in the cp line) and the two `--region` values by hand.
+
+</Tab>
+</Tabs>
+
+<Callout type="warning" title="Fill in My values first">
+If <Var name="WEB_BUCKET" /> or <Var name="AWS_REGION" /> above still shows as a highlighted placeholder, the command would write `<WEB_BUCKET>` literally into the file. Set them in **My values** and copy again.
+</Callout>
+</Step>
+
+<Step title="Check the result">
+```bash title="Review exactly what changed" env="laptop"
+git diff deploy/buildspec-web-deploy.yml
+```
+
+The file should now look like this, with **your** bucket and Region:
+
+```yaml title="deploy/buildspec-web-deploy.yml (yours)"
+version: 0.2
+phases:
+  build:
+    commands:
+      - test -f shortlink-web/dist/index.html
+      - aws s3 sync shortlink-web/dist/ s3://<WEB_BUCKET>/ --delete --region <AWS_REGION>
+      - aws s3 cp shortlink-web/dist/index.html s3://<WEB_BUCKET>/index.html --cache-control 'no-cache' --content-type 'text/html' --region <AWS_REGION>
+```
+
+Only the bucket and Region lines may differ from the original. If anything else changed, run `git checkout deploy/buildspec-web-deploy.yml` and start again.
+</Step>
+
+<Step title="Commit and push to your fork">
+```bash title="Commit and push" env="laptop"
+git add deploy/buildspec-web-deploy.yml
+git commit -m "chore(deploy): publish the website to my own bucket"
+git push origin main
+```
+
+<Callout type="note" title="Nothing happens yet, and that is right">
+No pipeline exists, so nothing starts. CodePipeline reads **GitHub**, so the change must be pushed. A file that exists only on your laptop does not exist for AWS.
+</Callout>
+</Step>
+
+<Details title="Prefer a setup without a bucket name in Git?">
+A cleaner design keeps the bucket and Region out of the repository entirely and reads them from the CodeBuild project's environment. Change the file to:
+
+```yaml title="deploy/buildspec-web-deploy.yml (alternative)"
+version: 0.2
+phases:
+  build:
+    commands:
+      - test -f shortlink-web/dist/index.html
+      - aws s3 sync shortlink-web/dist/ "s3://$WEB_BUCKET/" --delete --region "$AWS_DEFAULT_REGION"
+      - aws s3 cp shortlink-web/dist/index.html "s3://$WEB_BUCKET/index.html" --cache-control 'no-cache' --content-type 'text/html' --region "$AWS_DEFAULT_REGION"
+```
+
+Then give the **`shortlink-web-deploy`** project a plaintext environment variable `WEB_BUCKET` set to your bucket name. The same file now works for every participant, which is why this is better for real projects. The guide follows the simple, explicit version above because it matches the reference setup and is easier to read.
+</Details>
+
+Next: [connect GitHub](/guides/frontend-cicd/github-connection/).
