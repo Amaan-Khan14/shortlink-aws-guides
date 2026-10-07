@@ -1,0 +1,93 @@
+---
+title: Rollbacks and operations
+description: Undo a bad release, retry safely, understand caching, and combine both pipelines if you want one.
+minutes: 15
+---
+
+## Rolling back a bad website release
+
+There is no CodeDeploy here, so there is no automatic rollback. A website release is just a new build that overwrites files. Use Git as your rollback tool.
+
+<Step title="Option 1: revert in Git (recommended)">
+```bash title="Undo the bad commit" env="laptop"
+git log --oneline -n 5
+git revert --no-edit <COMMIT_SHA>
+git push origin main
+```
+
+The pipeline tests, builds and publishes the reverted code. You keep a clear history and the same safety checks.
+</Step>
+
+<Step title="Option 2: run the pipeline on a known-good commit">
+```bash title="Rebuild and publish an older commit" env="laptop"
+aws codepipeline start-pipeline-execution --region <AWS_REGION> --name shortlink-web-prod \
+  --source-revisions actionName=Source,revisionType=COMMIT_ID,revisionValue=<COMMIT_SHA>
+```
+
+The next push to `main` will publish whatever `main` holds again, so follow up with a revert.
+</Step>
+
+<Step title="Option 3: restore a single file from S3 versioning">
+The bucket has **versioning** on, so a deleted or overwritten object can be recovered. This is for emergencies, not a normal rollback, because a site is many files that must match each other.
+
+```bash title="See previous versions of index.html" env="laptop"
+aws s3api list-object-versions --region <AWS_REGION> --bucket <WEB_BUCKET> --prefix index.html \
+  --query 'Versions[].{id:VersionId,latest:IsLatest,modified:LastModified}' --output table
+```
+</Step>
+
+## Retry without rebuilding
+
+If **DeployWeb** failed but **Build** succeeded (for example a missing S3 permission), fix the cause and retry just that stage, so the already-built artifact is reused:
+
+<Ui>CodePipeline → shortlink-web-prod → DeployWeb → Retry stage → Retry failed actions</Ui>
+
+```bash title="The same from the CLI" env="laptop"
+aws codepipeline retry-stage-execution --region <AWS_REGION> --pipeline-name shortlink-web-prod \
+  --stage-name DeployWeb --pipeline-execution-id <EXECUTION_ID> --retry-mode FAILED_ACTIONS
+```
+
+## How caching behaves
+
+| File | Cache header | Why |
+|---|---|---|
+| `index.html` | `no-cache` | It references the hashed file names. Browsers must re-check it every visit so they see a new release |
+| `assets/index-<hash>.js` / `.css` | S3 default (none) | The file name changes when the content changes, so an old file name never serves new code |
+| Anything else (icons, images) | S3 default | Re-uploaded only when changed |
+
+`--delete` removes asset files from earlier builds. A visitor who loaded the page just before a release may briefly request an old asset that is gone and see an error until they reload. That is an accepted trade-off for a small site.
+
+## Where to look
+
+| Symptom | Look at |
+|---|---|
+| Pipeline did not start | Did the push touch `shortlink-web/**` or a buildspec? Was it to `main`? Is the connection *Available*? |
+| Red **Build** | CodeBuild log of `shortlink-web-build`: `npm ci`, a failing test, or a Vite error |
+| Red **DeployWeb** | CodeBuild log of `shortlink-web-deploy`: `AccessDenied` or a wrong bucket |
+| Site unchanged after green | Hard refresh; the bucket named in the DeployWeb log |
+| Site broken after green | The browser console and Network tab; compare `VITE_API_BASE_URL` and the API's `CORS_ORIGIN` |
+
+## One pipeline for both apps (optional)
+
+You can run the API and the website from a **single** pipeline. This is how the reference deployment was built, and it suits teams that always release both together.
+
+<Diagram name="pipeline-full" />
+
+The stage order is **Source → Build (API and Web in parallel) → DeployAPI → DeployWeb**. The web deploy waits for the API deploy, so a new frontend never goes live against an API that failed to deploy.
+
+- Create it from the **backend** pipeline: edit it, add a second action in the **Build** stage (a parallel CodeBuild action, `WebBuild`, with output `WebArtifact`), then a new stage `DeployWeb` after `Deploy` with the `WebDeploy` action taking `WebArtifact`.
+- In the editor, **Add action group** inside a stage means *parallel*. A stage added **below** another means *sequential*. Put the two builds side by side and each deploy in its own stage.
+- Remove the file-path filters, or widen them to cover both apps.
+
+<Callout type="danger" title="Never run two pipelines that deploy to the same target">
+If you keep a combined pipeline **and** the separate API pipeline from guide 2, one push to `main` starts both and they deploy the API at the same time, fighting over the same server. Use either the separate pipelines **or** the combined one.
+</Callout>
+
+## Good habits and next steps
+
+- **Review before you merge.** Short-lived branches, pull requests into your own fork, and branch protection on `main`.
+- **Add a notification** for failed executions (<Ui>Notify → Create notification rule</Ui>, send to an SNS topic).
+- **HTTPS and a CDN.** Add a domain, a certificate and CloudFront in front of S3, then make the bucket private. You then publish to the same bucket and add an invalidation step.
+- **Preview environments.** A second bucket and pipeline on a `staging` branch lets you check changes before `main`.
+
+Next: [troubleshooting](/guides/frontend-cicd/troubleshooting/).

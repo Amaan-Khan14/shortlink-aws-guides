@@ -1,0 +1,77 @@
+---
+title: Run the first release
+description: Publish the site through the pipeline and verify the files, the headers and the page.
+minutes: 15
+---
+
+## Start it
+
+<Step title="Release a change">
+Open <Ui>CodePipeline → Pipelines → shortlink-web-prod</Ui> and choose **Release change**. This uses the newest commit on `main`, which includes your bucket edit.
+
+Compare the commit shown in **Source** with <Ui>GitHub → your fork → Commits</Ui>. The latest commit should be your `chore(deploy): publish the website to my own bucket`.
+</Step>
+
+<Step title="Watch the three stages">
+| Stage | What good looks like | Time |
+|---|---|---|
+| Source | Green with your commit ID | ~20 s |
+| Build | Log shows `Tests 23 passed`, then Vite's `✓ built in …`, then `UPLOAD_ARTIFACTS` succeeded | 1 to 3 min |
+| DeployWeb | Log shows `upload:` lines from `aws s3 sync`, then one `upload:` for `index.html` | under 1 min |
+
+In the **DeployWeb** log you should see lines like:
+
+```text title="Excerpt of the DeployWeb log" env="output"
+[Container] Running command aws s3 sync shortlink-web/dist/ s3://your-bucket/ --delete --region ap-south-1
+upload: shortlink-web/dist/assets/index-AbC123.js to s3://your-bucket/assets/index-AbC123.js
+delete: s3://your-bucket/assets/index-OldHash.js
+```
+</Step>
+
+## Verify
+
+<Step title="Check the bucket and the headers">
+```bash title="What is in the bucket now?" env="laptop"
+aws s3 ls s3://<WEB_BUCKET>/ --recursive --region <AWS_REGION> | tail -n 8
+
+aws s3api head-object --region <AWS_REGION> --bucket <WEB_BUCKET> --key index.html \
+  --query '{modified:LastModified,type:ContentType,cache:CacheControl}'
+```
+
+<Result>`modified` is a few minutes ago (the pipeline wrote it), `type` is `text/html` and `cache` is `no-cache`. The listing shows `index.html` at the root and your files under `assets/`.</Result>
+</Step>
+
+<Step title="Check that the new build calls your API">
+```bash title="The load balancer address must be inside the JavaScript" env="laptop"
+curl -s <WEB_URL>/ | grep -o 'assets/[^"]*\.js' | head -n 1
+```
+
+Take that path and fetch it:
+
+```bash title="Search the bundle for the API host" env="laptop"
+curl -s <WEB_URL>/assets/<BUNDLE_FILE>.js | grep -c "<ALB_DNS>"
+```
+
+The count must be 1 or more. If it is 0 the build ran without `VITE_API_BASE_URL`, so check the variable on `shortlink-web-build`.
+</Step>
+
+<Step title="Open the site">
+Open <Var name="WEB_URL" /> in a **private window** or hard-refresh (<kbd>Cmd</kbd> <kbd>Shift</kbd> <kbd>R</kbd> or <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>R</kbd>).
+
+<Result>The app loads and the badge says **API online**.</Result>
+</Step>
+
+<Details title="The pipeline ran, but the site did not change">
+- **You are seeing a cached page.** Hard-refresh. `index.html` is `no-cache`, but a stale service worker or a proxy can still hold the old one.
+- **DeployWeb wrote to a different bucket.** Open the log and read the `s3://…` in the sync line. It must be <Var name="WEB_BUCKET" />.
+- **The build was cached.** Look at the commit ID in **Source**. If it is not your latest, push again or choose **Release change**.
+</Details>
+
+<Details title="DeployWeb failed">
+- `AccessDenied` on a bucket **you do not recognise** → the buildspec still points at the original bucket (see the *Point the deploy file at your bucket* chapter). Fix the file, push, release again.
+- `AccessDenied` on **your** bucket → the inline policy on `codebuild-shortlink-web-deploy-service-role` is missing or lists the wrong bucket name.
+- `test -f shortlink-web/dist/index.html` fails → the build artifact lacks the site. Open the **Build** action and check the `artifacts` section ran.
+- `YAML_FILE_ERROR … deploy/buildspec-web-deploy.yml` → the file is missing from the artifact. Check `buildspec-web.yml` lists it under `artifacts.files`.
+</Details>
+
+Next: [ship a change](/guides/frontend-cicd/ship-a-change/).

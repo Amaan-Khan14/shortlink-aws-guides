@@ -1,0 +1,60 @@
+---
+title: Troubleshooting
+description: Errors you may meet building and publishing the website, what causes them and how to fix them.
+minutes: 15
+---
+
+Find the red stage first. Open <Ui>CodePipeline → shortlink-web-prod</Ui>, or ask the CLI:
+
+```bash title="Which stage failed, and why?" env="laptop"
+aws codepipeline get-pipeline-state --region <AWS_REGION> --name shortlink-web-prod \
+  --query 'stageStates[].{stage:stageName,actions:actionStates[].{action:actionName,status:latestExecution.status,error:latestExecution.errorDetails.message}}' \
+  --output json
+```
+
+## Source and connection
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Source cannot read the repository | Connection **Pending**, or in another Region | Finish **Update pending connection**; it must be **Available** in <Var name="AWS_REGION" /> |
+| Your fork is not selectable | The GitHub App is not installed on it | GitHub → <Ui>Settings → Applications → AWS Connector for GitHub → Configure</Ui> and add the fork |
+| No execution after a push | The push was not on `main`, or touched no filtered path | Check the trigger filters, or use **Release change** |
+| The pipeline builds the **instructor's** code | The Source action points at the original repository | Edit Source to <Var name="GITHUB_USER" />/<Var name="REPO_NAME" /> |
+
+## Build
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `codebuild:StartBuild` `AccessDenied` and **no CodeBuild log** | The pipeline role cannot start the project | Add the `shortlink-web-start-builds` policy (permissions chapter) |
+| `YAML_FILE_ERROR`, `no such file deploy/buildspec-web.yml` | Wrong buildspec path or file not on `main` | Set it to `deploy/buildspec-web.yml` and push |
+| Tests fail | A real regression | Read the failing test, fix, push |
+| `vite build` fails | A syntax or import error | Read the error in the log, reproduce with `npm --prefix shortlink-web run build` |
+| Out of memory during the build | Compute size too small | Edit the project and use a larger size (medium) |
+| Source/artifact type error editing the project | CodeBuild checks both together | Both must be `CODEPIPELINE` (pipeline chapter) |
+| Build succeeds, site says **API unreachable** | `VITE_API_BASE_URL` missing or wrong on the build project | Set it to <Var name="API_URL" /> and release again |
+
+## DeployWeb
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `AccessDenied` on a bucket **you did not create** | `deploy/buildspec-web-deploy.yml` still names the original bucket | Edit it to <Var name="WEB_BUCKET" />, push, release again |
+| `AccessDenied` on `ListObjectsV2` / `PutObject` / `DeleteObject` on **your** bucket | The deploy role's policy is missing or names a different bucket | Add `shortlink-web-deploy-website-sync` to `codebuild-shortlink-web-deploy-service-role` |
+| `AccessDenied` reading the artifact | The deploy role cannot read the pipeline bucket | Add the artifact-read policy (permissions chapter) |
+| `NoSuchBucket` | A typo in the bucket name or Region in the buildspec | Compare with <Ui>S3 → Buckets</Ui> |
+| `test -f shortlink-web/dist/index.html` fails | The build artifact did not contain the site | Check `artifacts.files` in `buildspec-web.yml` and the Build log |
+| `YAML_FILE_ERROR` for the deploy buildspec | `deploy/buildspec-web-deploy.yml` is not inside the artifact | It must be listed in `buildspec-web.yml` under `artifacts.files` |
+| Deploy is green but the site is unchanged | Browser cache, or it published to another bucket | Hard refresh; read the `s3://…` in the log |
+
+## The site itself
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| **403** from the website URL | The bucket policy does not allow public read, or Block Public Access is on | Guide 1, chapter 8. The *deploy* role is not involved |
+| **404** at the root | `index.html` is in a nested folder, or the bucket was emptied | Check `aws s3 ls s3://<WEB_BUCKET>/` shows `index.html` at the top |
+| Old JavaScript still loads | Cached page | Hard refresh. Confirm `index.html` has `Cache-Control: no-cache` |
+| Network tab shows calls to the S3 hostname | The variable was missing in that build | Set `VITE_API_BASE_URL` on `shortlink-web-build`, then release |
+| CORS errors in the console | The API does not list the website origin | Set `CORS_ORIGIN` to <Var name="WEB_URL" /> in `/etc/shortlink/shortlink.env` and restart the API |
+
+<Callout type="tip" title="How to ask for help well">
+Say which stage failed, paste the one-line error from the command at the top, and what you already tried. Never paste access keys or tokens.
+</Callout>

@@ -1,0 +1,115 @@
+---
+title: Ship a change, and break one on purpose
+description: Change the footer, watch it go live without touching AWS, then see a broken build get stopped.
+minutes: 25
+---
+
+## Part 1: a change that ships
+
+The page footer says "ShortLink — a DevOps with AWS workshop project." You will add a line to it. It is a harmless, visible change that no test checks.
+
+<Step title="Create a branch">
+```bash title="Branch from an up-to-date main" env="laptop"
+git switch main
+git pull origin main
+git switch -c footer-note
+```
+</Step>
+
+<Step title="Edit the footer">
+Open `shortlink-web/src/App.jsx` and find the footer text (around line 114):
+
+```diff title="shortlink-web/src/App.jsx"
+-            ShortLink — a DevOps with AWS workshop project.
++            ShortLink — a DevOps with AWS workshop project. Deployed by my own CI/CD pipeline.
+```
+</Step>
+
+<Step title="Test and build locally first">
+```bash title="Never push what you have not run" env="laptop"
+npm --prefix shortlink-web test
+```
+
+<Result>`Tests 23 passed (23)`</Result>
+</Step>
+
+<Step title="Commit, push the branch, then merge">
+```bash title="Commit and push the branch" env="laptop"
+git add shortlink-web/src/App.jsx
+git commit -m "feat(web): add a note about the pipeline to the footer"
+git push -u origin footer-note
+```
+
+The pipeline does **not** start: it only listens to `main`. Merge when you are happy:
+
+```bash title="Merge into main and push" env="laptop"
+git switch main
+git merge --no-ff footer-note -m "Merge footer-note"
+git push origin main
+```
+
+<Callout type="warning" title="Using a GitHub pull request?">
+On a fork, GitHub opens the PR against the **original repository** by default. Change the **base repository** to your own fork (<Var name="GITHUB_USER" />/<Var name="REPO_NAME" />) before you create it.
+</Callout>
+</Step>
+
+<Step title="Watch it go live">
+`shortlink-web-prod` starts by itself within about a minute. When **DeployWeb** is green, hard-refresh <Var name="WEB_URL" />.
+
+<Result>The new sentence appears in the footer. You never ran `aws s3 sync`.</Result>
+</Step>
+
+## Part 2: break the build on purpose
+
+<Step title="Introduce a syntax error">
+```bash title="A throwaway branch" env="laptop"
+git switch -c break-the-build
+```
+
+Add a line of invalid code at the **end** of `shortlink-web/src/main.jsx`:
+
+```diff title="shortlink-web/src/main.jsx"
++const = ;
+```
+
+Run `npm --prefix shortlink-web run build` and see Vite refuse to build. Now push it to `main` anyway for the experiment:
+
+```bash title="Push the broken change" env="laptop"
+git add shortlink-web/src/main.jsx
+git commit -m "chore: break the build on purpose"
+git switch main
+git merge break-the-build
+git push origin main
+```
+</Step>
+
+<Step title="See what the pipeline does">
+The **Build** stage turns red and its log shows the Vite error. **DeployWeb never starts.** Reload your site: it is exactly as before, because the broken build never reached S3. `aws s3 sync --delete` would otherwise have replaced a working site with a broken one.
+</Step>
+
+<Step title="Revert">
+```bash title="Undo it" env="laptop"
+git revert --no-edit HEAD
+git push origin main
+```
+
+A new execution tests, builds and republishes the good version.
+</Step>
+
+## Part 3: the API address is baked in
+
+This is the lesson that saves hours. Suppose you rebuild your load balancer and its address changes.
+
+<Step title="Change the variable and rebuild">
+1. Open <Ui>CodeBuild → Build projects → shortlink-web-build → Edit → Environment → Additional configuration</Ui>.
+2. Change `VITE_API_BASE_URL` to the new address and **Update environment**.
+3. Nothing happens by itself, because the pipeline starts on **commits**, not on settings. Open <Ui>CodePipeline → shortlink-web-prod → Release change</Ui>.
+
+Until that rebuild finishes, the live site still calls the **old** address, because the old value is stored inside the JavaScript files. Open the browser developer tools → Network to confirm which host the calls go to.
+</Step>
+
+<Callout type="tip" title="Try the path filter">
+Edit only `shortlink-api/src/app.js` and push to `main`. The **website** pipeline does not start (no matching path), while the API pipeline from guide 2 does.
+</Callout>
+
+Next: [rollbacks and operations](/guides/frontend-cicd/operations/).
