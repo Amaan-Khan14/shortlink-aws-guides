@@ -1,0 +1,111 @@
+---
+title: Deploy the website
+description: Build the React app with your API address baked in and upload it to the S3 bucket.
+minutes: 20
+---
+
+The website is a **build artifact**: Vite compiles the React source into a folder of static files (`dist/`). You will build it on your computer and upload it to S3 once, by hand. In the CI/CD guide the same build and upload are done by AWS for you on every push.
+
+## The one thing that trips everyone up
+
+Vite reads `VITE_API_BASE_URL` **while it builds** and writes its value into the JavaScript files. It is not read when the page loads. So:
+
+- Set the variable **before** you build.
+- If you change the API address later, you must **rebuild and upload again**.
+- The value is visible to anyone who views the page source. Never put a secret in a `VITE_` variable.
+
+<Callout type="problem" title="If the site says 'API unreachable' later">
+The usual cause is that the site was built without the variable, so the app calls relative URLs such as `/api/links` on the S3 website, which has no API. Open the browser's developer tools → Network. Calls should go to your **load balancer hostname**. Calls to the S3 hostname mean the variable was missing at build time.
+</Callout>
+
+## Build and upload
+
+<Step title="Install the dependencies">
+From the root of your clone on your computer:
+
+```bash title="Install website dependencies" env="laptop"
+npm --prefix shortlink-web ci
+```
+</Step>
+
+<Step title="Build with your API address">
+The value is your load balancer's address: <Var name="API_URL" />. No trailing slash.
+
+<Tabs>
+<Tab label="macOS / Linux">
+
+```bash title="Build" env="laptop"
+VITE_API_BASE_URL=<API_URL> npm --prefix shortlink-web run build
+```
+
+</Tab>
+<Tab label="Windows (PowerShell)">
+
+```powershell title="Build" env="laptop"
+$env:VITE_API_BASE_URL = "<API_URL>"
+npm --prefix shortlink-web run build
+```
+
+</Tab>
+</Tabs>
+
+<Result>Vite prints a list of files under `dist/` (an `index.html` and an `assets/` folder) and ends with `✓ built in …`.</Result>
+
+Confirm the address really was baked in:
+
+<Tabs>
+<Tab label="macOS / Linux">
+
+```bash title="Search the build for your load balancer hostname" env="laptop"
+grep -rl "<ALB_DNS>" shortlink-web/dist/assets | head -n 3
+```
+
+</Tab>
+<Tab label="Windows (PowerShell)">
+
+```powershell title="Search the build for your load balancer hostname" env="laptop"
+Select-String -Path shortlink-web/dist/assets/*.js -Pattern "<ALB_DNS>" -List | Select-Object -First 3 Path
+```
+
+</Tab>
+</Tabs>
+
+You should see at least one `.js` file. No result means the variable was not set when you built; set it and build again.
+</Step>
+
+<Step title="Upload the contents of dist/">
+Upload the **contents** of `dist`, so that `index.html` sits at the **root** of the bucket. `--delete` removes files from earlier builds that no longer exist.
+
+```bash title="Sync the build to S3" env="laptop"
+aws s3 sync shortlink-web/dist/ s3://<WEB_BUCKET>/ --delete --region <AWS_REGION>
+```
+
+Then give `index.html` a `no-cache` header so browsers always fetch the newest copy (the other files have content hashes in their names and are safe to cache):
+
+```bash title="Make index.html always revalidate" env="laptop"
+aws s3 cp shortlink-web/dist/index.html s3://<WEB_BUCKET>/index.html \
+  --cache-control 'no-cache' --content-type 'text/html' --region <AWS_REGION>
+```
+
+<Callout type="warning" title="A nested dist/ folder is the classic mistake">
+Uploading the folder itself (`s3://bucket/dist/index.html`) makes the site return 404. Check with `aws s3 ls s3://<WEB_BUCKET>/`: you must see `index.html` and `assets/` directly, not `dist/`.
+</Callout>
+</Step>
+
+<Step title="Open the website">
+Open <Var name="WEB_URL" /> in your browser.
+
+<Result>The ShortLink app loads and the status badge in the corner says **API online** (green). If it says **API unreachable**, see the box above, then the troubleshooting chapter.</Result>
+</Step>
+
+## Check it from the command line too
+
+```bash title="The home page and the API through the site" env="laptop"
+curl -sI <WEB_URL>/ | head -n 3
+aws s3api head-object --bucket <WEB_BUCKET> --key index.html --region <AWS_REGION> \
+  --query '{type:ContentType,cache:CacheControl,modified:LastModified}'
+```
+
+<Result>`HTTP/1.1 200 OK`, `ContentType: text/html`, `CacheControl: no-cache`.</Result>
+
+Next: [verify everything end to end](/guides/deployment/verify/).

@@ -1,0 +1,90 @@
+---
+title: Verify and harden
+description: An end-to-end checklist, the security checks that matter, and what to change before real users.
+minutes: 15
+---
+
+Do not skip this chapter. A short, deliberate check now saves an hour of confused debugging in the CI/CD guides.
+
+## End-to-end test in the browser
+
+<Step title="Create, open and measure a link">
+Open <Var name="WEB_URL" /> and:
+
+1. Confirm the badge says **API online**.
+2. Create a short link for `https://aws.amazon.com/`, with the alias `hello-aws`.
+3. Copy the short link. Its host must be your **load balancer** hostname (this proves `BASE_URL`).
+4. Open it in a new tab. You land on aws.amazon.com.
+5. Return to the app and open the link's analytics. The click count is at least 1 and the referrer and device appear.
+6. Create a second link with an **expiry** in the past or a **disabled** state and confirm it returns an error page (HTTP 410) instead of redirecting.
+</Step>
+
+<Step title="Look at the network calls">
+Open the browser's developer tools → **Network**, then reload the page. Every `/api/...` request should go to your **load balancer hostname**, with status `200`, and there should be **no red CORS errors** in the Console.
+</Step>
+
+## Infrastructure checks
+
+<Step title="Confirm the server and database are private">
+```bash title="The instance must have no public IP" env="laptop"
+aws ec2 describe-instances --region <AWS_REGION> \
+  --filters Name=tag:Name,Values=shortlink-api Name=instance-state-name,Values=running \
+  --query 'Reservations[].Instances[].{id:InstanceId,publicIp:PublicIpAddress,privateIp:PrivateIpAddress}' --output table
+```
+
+`publicIp` must be `None`.
+
+```bash title="The database must not be public" env="laptop"
+aws rds describe-db-instances --region <AWS_REGION> --db-instance-identifier shortlink-db \
+  --query 'DBInstances[0].PubliclyAccessible'
+```
+
+The answer must be `false`.
+</Step>
+
+<Step title="Confirm the target is healthy">
+```bash title="Target health" env="laptop"
+aws elbv2 describe-target-health --region <AWS_REGION> \
+  --target-group-arn "$(aws elbv2 describe-target-groups --region <AWS_REGION> --names shortlink-app-tg --query 'TargetGroups[0].TargetGroupArn' --output text)" \
+  --query 'TargetHealthDescriptions[].{id:Target.Id,state:TargetHealth.State}' --output table
+```
+
+<Result>One row with your instance ID and `state: healthy`.</Result>
+</Step>
+
+<Step title="Test that the API cannot be reached around the load balancer">
+The instance has no public address, so there is nothing to test from the internet. That is the point: the only way in is the load balancer. If you want to see the firewall rule that enforces it, run:
+
+```bash title="Who may reach port 3000?" env="laptop"
+aws ec2 describe-security-groups --region <AWS_REGION> --filters Name=group-name,Values=shortlink-api-sg \
+  --query 'SecurityGroups[0].IpPermissions[].{port:FromPort,sourceGroups:UserIdGroupPairs[].GroupId,cidrs:IpRanges[].CidrIp}'
+```
+
+`cidrs` must be empty and `sourceGroups` must contain exactly one ID, the load balancer's group.
+</Step>
+
+## What this setup does not give you
+
+This is a **workshop deployment**. Be honest about what is missing before you reuse it for anything real.
+
+| Area | What you have | What production needs |
+|---|---|---|
+| Transport | Plain HTTP on the website and the API | HTTPS everywhere: a domain, an ACM certificate, an HTTPS listener, and CloudFront in front of S3 |
+| Availability | One API server, one database in one zone | Two or more API servers (Auto Scaling) across zones, and Multi-AZ RDS |
+| Deploys | In-place, with a short outage per release | Rolling or blue/green deployments |
+| Secrets | Password in a root-owned file on the server | AWS Secrets Manager or Parameter Store |
+| Observability | Logs on the instance only | CloudWatch Logs and alarms for target health, 5xx errors and database CPU and storage |
+| Cost control | Manual clean-up | Budgets, tagging, and scheduled shutdown for non-production |
+
+<Callout type="note">
+Account restrictions can prevent CloudFront in new or free-plan accounts. If you want HTTPS later, check what your account allows before designing around it.
+</Callout>
+
+## Where to go next
+
+- **Guide 2: Backend CI/CD on EC2.** Stop logging in to deploy. Pushes to your fork update the API.
+- **Guide 3: Frontend CI/CD to S3.** Pushes to your fork rebuild and publish the website.
+
+You can do either one first, or both. Keep this deployment running while you do them. Remember to run the **Clean up** chapter when you finish.
+
+Next: [troubleshooting](/guides/deployment/troubleshooting/).

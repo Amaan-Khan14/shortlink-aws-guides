@@ -1,0 +1,259 @@
+---
+title: Install and start the API
+description: Install Node.js on the server, clone your fork, connect to the database and run the API as a systemd service.
+minutes: 35
+---
+
+The server is an empty Ubuntu machine. In this chapter you install Node.js, fetch **your fork** of the code, tell the API how to reach the database, create the tables, and run the API as a background service that restarts if it crashes.
+
+Everything here runs **on the EC2 instance** through Session Manager. Open a session: <Ui>EC2 → Instances → shortlink-api → Connect → Session Manager → Connect</Ui>.
+
+<Callout type="note" title="Why do this by hand if CI/CD will do it later?">
+A first manual deployment teaches you what the pipeline automates, and it proves the database, network and load balancer work before you add automation on top. When something fails later, you will know whether it is the pipeline or the infrastructure.
+</Callout>
+
+<Callout type="warning" title="Sessions time out">
+Session Manager closes idle sessions (20 minutes by default). Shell variables disappear when it does. The two steps that use a variable (the password) tell you to run them together; if you get disconnected in between, start that step again.
+</Callout>
+
+## Install the software
+
+<Step title="Install Node.js 22 and Git">
+The API needs Node.js 20 or newer. Ubuntu's own `nodejs` package can be older than that, so install from NodeSource, which serves current LTS versions.
+
+```bash title="Install Node.js and Git" env="ec2"
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg git
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+Check the result. The service file later uses `/usr/bin/node`, so the path matters.
+
+```bash title="Check versions and path" env="ec2"
+node --version
+npm --version
+command -v node
+git --version
+```
+
+<Result>`node` prints `v22.x.x` (anything v20 or newer is fine) and `command -v node` prints `/usr/bin/node`.</Result>
+
+<Callout type="note" title="About piping a script into bash">
+`curl … | sudo bash` runs a script from the internet with admin rights. NodeSource is a widely used source for Node.js packages, and this is its documented install method. To be careful you can download the script first, read it, then run it: `curl -fsSLO https://deb.nodesource.com/setup_22.x`, then `less setup_22.x`, then `sudo -E bash setup_22.x`.
+</Callout>
+</Step>
+
+<Step title="Create the application folder">
+```bash title="Create /opt/shortlink" env="ec2"
+sudo install -d -m 755 -o ubuntu -g ubuntu /opt/shortlink
+```
+
+The service will run as the unprivileged `ubuntu` user, so that user owns the folder.
+</Step>
+
+<Step title="Clone your fork">
+```bash title="Clone your fork onto the server" env="ec2"
+sudo -u ubuntu git clone --branch main https://github.com/<GITHUB_USER>/<REPO_NAME>.git /opt/shortlink/repo
+```
+
+<Result>`Cloning into '/opt/shortlink/repo'...` and no error.</Result>
+
+<Callout type="problem" title="Clone your fork, not the original">
+The URL must contain **your** GitHub username. If you clone the instructor's repository the app still runs, but your later pipeline will deploy different code from what is on this server, and the confusion is hard to untangle.
+</Callout>
+</Step>
+
+<Step title="Install the API's dependencies">
+```bash title="Install production dependencies" env="ec2"
+sudo -u ubuntu npm --prefix /opt/shortlink/repo/shortlink-api ci --omit=dev
+```
+
+`ci` installs exactly what `package-lock.json` says, and `--omit=dev` skips the test tools the server does not need.
+</Step>
+
+## Configure the API
+
+The API reads its settings from environment variables. They live in a file **outside the repository** so secrets never touch Git.
+
+| Variable | Value | Why |
+|---|---|---|
+| `PORT` | `3000` | Must match the target group and `shortlink-api-sg` |
+| `DATABASE_URL` | `postgres://postgres:<password>@<RDS endpoint>:5432/shortlink` | How to reach the database |
+| `DB_SSL` | `true` | RDS requires encrypted connections |
+| `BASE_URL` | <Var name="API_URL" /> | The host used in short links the API returns |
+| `CORS_ORIGIN` | <Var name="WEB_URL" /> | The website origin allowed to call the API from a browser |
+
+<Callout type="warning" title="CORS_ORIGIN must match exactly">
+Browsers only let a page call an API on another origin if the API names that origin. `CORS_ORIGIN` must be the website's address exactly, with `http://`, no trailing slash, and the full bucket website hostname. A mismatch shows up later as the site loading but saying **API unreachable**, with a CORS error in the browser console.
+</Callout>
+
+<Step title="Create the private env file">
+```bash title="Create /etc/shortlink with tight permissions" env="ec2"
+sudo install -d -m 700 -o ubuntu -g ubuntu /etc/shortlink
+sudo install -m 600 -o ubuntu -g ubuntu /dev/null /etc/shortlink/shortlink.env
+```
+
+Only the `ubuntu` user can read the folder or the file.
+</Step>
+
+<Step title="Read the database password into a variable">
+Run this **by itself**. It prompts for the password and does not echo it to the screen or the shell history.
+
+```bash title="Enter the RDS master password" env="ec2"
+read -rsp "Paste the RDS master password, then press Enter: " DB_PASSWORD; echo
+```
+
+<Callout type="warning" title="Do not paste this together with the next block">
+`read` takes the **next line of input** as the password. If you paste two blocks at once, the first line of the second block becomes your "password". Run the block above, type or paste the password, press Enter, and only then continue.
+</Callout>
+</Step>
+
+<Step title="Write the settings file">
+This URL-encodes the password (so characters like `@` or `/` cannot break the URL) and writes the file in one go.
+
+```bash title="Write /etc/shortlink/shortlink.env" env="ec2"
+ENCODED=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$DB_PASSWORD")
+sudo tee /etc/shortlink/shortlink.env >/dev/null <<EOF
+PORT=3000
+DATABASE_URL=postgres://postgres:${ENCODED}@<RDS_ENDPOINT>:5432/shortlink
+DB_SSL=true
+BASE_URL=<API_URL>
+CORS_ORIGIN=<WEB_URL>
+EOF
+unset DB_PASSWORD ENCODED
+sudo chown ubuntu:ubuntu /etc/shortlink/shortlink.env
+sudo chmod 600 /etc/shortlink/shortlink.env
+```
+
+Check the file **without printing the password**:
+
+```bash title="Show variable names and permissions only" env="ec2"
+sudo ls -l /etc/shortlink/shortlink.env
+sudo sed 's/=.*/=…/' /etc/shortlink/shortlink.env
+```
+
+```text env="output"
+-rw------- 1 ubuntu ubuntu 261 Oct  8 09:12 /etc/shortlink/shortlink.env
+PORT=…
+DATABASE_URL=…
+DB_SSL=…
+BASE_URL=…
+CORS_ORIGIN=…
+```
+
+If any value is still shown as a highlighted placeholder when you copy a command from this page, fill it in under **My values** first. A line such as `BASE_URL=<API_URL>` written literally into the file will break the API.
+</Step>
+
+## Create the tables
+
+<Step title="Apply the database schema">
+The repository includes an idempotent script (safe to run more than once) that creates the tables using the same driver the API uses, so you do not need the `psql` tool.
+
+```bash title="Initialise the database" env="ec2"
+sudo -u ubuntu bash -c 'cd /opt/shortlink/repo/shortlink-api && node --env-file=/etc/shortlink/shortlink.env scripts/init-db.js'
+```
+
+<Result>`Schema applied`</Result>
+
+<Details title="It hangs, then prints ETIMEDOUT">
+The server cannot reach the database on port 5432. Check, in this order:
+
+1. The hostname in `DATABASE_URL` equals the **current** endpoint of `shortlink-db` in the RDS console. Compare without printing the password: `sudo sed -n 's/.*@\(.*\):5432.*/\1/p' /etc/shortlink/shortlink.env`.
+2. `shortlink-db-sg` allows `5432` from **`shortlink-api-sg`** (not from a CIDR).
+3. The instance really uses `shortlink-api-sg`: <Ui>EC2 → Instance → Security</Ui>.
+4. The database **Status** is **Available**.
+</Details>
+
+<Details title="password authentication failed for user postgres">
+The password is wrong. Run the `read` step and the `tee` step again with the right one. A typo in the password manager copy is the usual cause.
+</Details>
+
+<Details title="database shortlink does not exist">
+You left **Initial database name** empty when creating the database. It is cleaner to delete the database and create it again with the name `shortlink` than to patch it by hand.
+</Details>
+</Step>
+
+## Run it as a service
+
+<Step title="Create the systemd unit">
+**systemd** starts the API at boot and restarts it if it crashes.
+
+```bash title="Write the service file" env="ec2"
+sudo tee /etc/systemd/system/shortlink-api.service >/dev/null <<'UNIT'
+[Unit]
+Description=ShortLink API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/shortlink/repo/shortlink-api
+ExecStart=/usr/bin/node --env-file=/etc/shortlink/shortlink.env src/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+```
+
+Notice the quotes around `'UNIT'`: they stop the shell from expanding anything inside the file.
+</Step>
+
+<Step title="Start it">
+```bash title="Enable and start the service" env="ec2"
+sudo systemctl daemon-reload
+sudo systemctl enable --now shortlink-api
+sudo systemctl is-active shortlink-api
+```
+
+<Result>`active`</Result>
+</Step>
+
+<Step title="Test it from the server itself">
+```bash title="Local health check" env="ec2"
+curl -fsS http://127.0.0.1:3000/health
+echo
+sudo journalctl -u shortlink-api -n 20 --no-pager
+```
+
+<Result>`{"status":"ok","database":"up"}` and a journal line `shortlink-api listening on 0.0.0.0:3000`.</Result>
+
+If the service is `failed`, the journal shows why. The usual causes are a wrong env file (`DATABASE_URL is not set`) or an old Node version (`node: bad option: --env-file`).
+</Step>
+
+## Test it through the load balancer
+
+<Step title="Call the API from your computer">
+```bash title="Health through the load balancer" env="laptop"
+curl -i http://<ALB_DNS>/health
+```
+
+<Result>`HTTP/1.1 200 OK` and `{"status":"ok","database":"up"}`.</Result>
+
+Give the target group about 30 seconds. Then in <Ui>EC2 → Target Groups → shortlink-app-tg → Targets</Ui> the instance should show **Healthy**.
+</Step>
+
+<Step title="Create a link and follow it">
+```bash title="Create a short link" env="laptop"
+curl -sS -X POST http://<ALB_DNS>/api/links \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://aws.amazon.com/","alias":"aws-test"}'
+```
+
+The response (HTTP 201) includes `"shortUrl"`. Its host must be your **load balancer**, which proves `BASE_URL` is right. Now open the short link and check it redirects:
+
+```bash title="Follow the short link" env="laptop"
+curl -sI http://<ALB_DNS>/aws-test | head -n 3
+```
+
+```text env="output"
+HTTP/1.1 302 Found
+Location: https://aws.amazon.com/
+```
+</Step>
+
+You now have a working backend: browser or `curl` → load balancer → private server → private database.
+
+Next: [deploy the website](/guides/deployment/frontend-deploy/).
