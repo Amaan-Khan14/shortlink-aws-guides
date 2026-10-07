@@ -1,0 +1,129 @@
+---
+title: Create the database
+description: A private PostgreSQL instance on RDS, reachable only from the API.
+minutes: 25
+---
+
+The API stores links, click events and collections in PostgreSQL. You will use **Amazon RDS**, a managed database: AWS handles patching, backups and the operating system. The instance goes in the **private subnets** with **public access turned off**.
+
+## Create the subnet group
+
+RDS needs to know which subnets it may use. A **DB subnet group** is that list, and it must cover at least two Availability Zones.
+
+<Step title="Create shortlink-db-subnets">
+Open <Ui>RDS → Subnet groups → Create DB subnet group</Ui>.
+
+| Field | Value |
+|---|---|
+| Name | `shortlink-db-subnets` |
+| Description | `Private subnets for ShortLink` |
+| VPC | `shortlink-vpc` |
+| Availability Zones | <Var name="AZ_A" /> and <Var name="AZ_B" /> |
+| Subnets | `10.0.11.0/24` and `10.0.12.0/24` (the **private** ones) |
+
+Choose **Create**.
+
+<Callout type="warning">
+Pick the two **private** subnets (`10.0.11.0/24`, `10.0.12.0/24`). If you accidentally pick public ones the database still works, but it is no longer isolated by network design.
+</Callout>
+</Step>
+
+## Create the database
+
+<Step title="Start the wizard">
+Open <Ui>RDS → Databases → Create database</Ui>. Choose **Standard create** and engine **PostgreSQL**.
+
+Leave the engine version on the default. The reference deployment ran PostgreSQL 18; any current major version (15 or newer) works with this app.
+</Step>
+
+<Step title="Template, availability and identifier">
+| Field | Value |
+|---|---|
+| Templates | **Free tier** if shown, otherwise **Dev/Test** (never Production) |
+| Availability and durability | **Single-AZ DB instance** (or "Single DB instance") |
+| DB instance identifier | `shortlink-db` |
+</Step>
+
+<Step title="Credentials">
+| Field | Value |
+|---|---|
+| Master username | `postgres` |
+| Credentials management | **Self managed** |
+| Master password | A strong password you choose |
+
+<Callout type="danger" title="Choose a password you can paste safely">
+Write it in your password manager **now**. The password goes into a connection URL later, so letters and digits are safest. If you include symbols, the bootstrap chapter URL-encodes it for you, but a typo in any copy step is much harder to find. Never commit it to Git and never type it into these guides' **My values** panel.
+</Callout>
+</Step>
+
+<Step title="Instance and storage">
+| Field | Value |
+|---|---|
+| DB instance class | **Burstable classes** → `db.t3.micro` |
+| Storage type | **General Purpose SSD (gp3)** |
+| Allocated storage | `20` GiB |
+| Storage autoscaling | untick **Enable storage autoscaling** (avoids surprise growth) |
+
+<Callout type="tip">
+The console may default to a much larger volume (the reference deployment accidentally kept 200 GiB). Storage is billed per GiB-month whether you use it or not, so set 20 deliberately.
+</Callout>
+</Step>
+
+<Step title="Connectivity">
+| Field | Value |
+|---|---|
+| Compute resource | **Don't connect to an EC2 compute resource** |
+| Network type | IPv4 |
+| Virtual private cloud (VPC) | `shortlink-vpc` |
+| DB subnet group | `shortlink-db-subnets` |
+| Public access | **No** |
+| VPC security group (firewall) | **Choose existing** → remove `default`, add `shortlink-db-sg` |
+| Availability Zone | No preference |
+| Database port | `5432` |
+
+<Callout type="danger" title="Public access must be No">
+This is the most important setting on the page. A database with public access on and an open security group is how data leaks happen. With **No**, the instance has no public IP at all.
+</Callout>
+</Step>
+
+<Step title="Additional configuration">
+Expand **Additional configuration** at the bottom of the form.
+
+| Field | Value |
+|---|---|
+| **Initial database name** | `shortlink` |
+| Backup retention period | `1` day (7 is the default; 1 is fine for a workshop) |
+| Encryption | leave **Enable encryption** ticked |
+| Deletion protection | **off** for the workshop, so you can clean up |
+
+<Callout type="problem" title="Do not skip the initial database name">
+If you leave **Initial database name** empty, RDS creates the server but **no database**, and the app later fails with `database "shortlink" does not exist`. It is on the *Additional configuration* section, easy to miss.
+</Callout>
+
+Choose **Create database**. If the console offers to add optional features such as Performance Insights, you can decline.
+</Step>
+
+<Step title="Wait for Available and save the endpoint">
+Creation takes 5 to 10 minutes. Open <Ui>RDS → Databases → shortlink-db</Ui>. When **Status** is **Available**, find **Connectivity & security → Endpoint**. It looks like `shortlink-db.abcd1234.<region>.rds.amazonaws.com`.
+
+Copy it into **My values → RDS endpoint**.
+
+<Result>Status **Available**, **Publicly accessible: No**, and an endpoint hostname you have saved.</Result>
+</Step>
+
+<Step title="Verify from the command line">
+```bash title="Check the database" env="laptop"
+aws rds describe-db-instances --region <AWS_REGION> --db-instance-identifier shortlink-db \
+  --query 'DBInstances[0].{status:DBInstanceStatus,endpoint:Endpoint.Address,public:PubliclyAccessible,db:DBName,class:DBInstanceClass,storageGiB:AllocatedStorage}' \
+  --output table
+```
+
+The `db` field must say `shortlink` and `public` must be `False`.
+</Step>
+
+## Two facts worth knowing
+
+- **TLS is required.** Recent PostgreSQL versions on RDS reject unencrypted connections. That is why the API's environment file sets `DB_SSL=true`, which makes the `pg` library connect over TLS.
+- **Always trust the console for the hostname.** A stale hostname copied from an old note is the most common reason the API cannot reach the database. If you ever recreate the database, the endpoint changes, so update the API environment file. The troubleshooting chapter shows how to compare the two.
+
+Next: [IAM role for the server](/guides/deployment/iam-role/).

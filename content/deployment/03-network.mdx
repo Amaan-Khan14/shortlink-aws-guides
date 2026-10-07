@@ -1,0 +1,126 @@
+---
+title: Build the network
+description: Create the VPC, public and private subnets, NAT gateway and S3 endpoint.
+minutes: 20
+---
+
+A **VPC** is your private network inside AWS. You will split it into **public subnets** (reachable from the internet, for the load balancer) and **private subnets** (no inbound internet access, for the API server and the database). Private resources still need to reach the internet *outbound* to install packages, which is what the **NAT gateway** is for.
+
+| Subnet | CIDR | Availability Zone | Holds |
+|---|---|---|---|
+| Public 1 | `10.0.1.0/24` | <Var name="AZ_A" /> | Load balancer, NAT gateway |
+| Public 2 | `10.0.2.0/24` | <Var name="AZ_B" /> | Load balancer |
+| Private 1 | `10.0.11.0/24` | <Var name="AZ_A" /> | API EC2 instance |
+| Private 2 | `10.0.12.0/24` | <Var name="AZ_B" /> | RDS (RDS requires subnets in two zones) |
+
+<Callout type="warning" title="Check your Region first">
+Look at the Region selector at the top right of the console. It must show the Region you chose (<Var name="AWS_REGION" />). Every resource in this guide must be created in that Region.
+</Callout>
+
+## Create the VPC
+
+<Step title="Open the VPC wizard">
+Search the console for **VPC**, open it, then choose <Ui>Your VPCs → Create VPC</Ui>.
+
+Under **Resources to create** choose **VPC and more**. This wizard creates the VPC, subnets, route tables, internet gateway, NAT gateway and endpoint in one go.
+</Step>
+
+<Step title="Fill in the VPC settings">
+| Field | Value |
+|---|---|
+| Name tag auto-generation | Keep **Auto-generate** ticked. Enter `shortlink` |
+| IPv4 CIDR block | `10.0.0.0/16` |
+| IPv6 CIDR block | No IPv6 CIDR block |
+| Tenancy | Default |
+| Number of Availability Zones | **2** |
+| Number of public subnets | **2** |
+| Number of private subnets | **2** |
+
+Open **Customize subnets CIDR blocks** and set:
+
+| Subnet | CIDR |
+|---|---|
+| Public subnet CIDR block in zone 1 | `10.0.1.0/24` |
+| Public subnet CIDR block in zone 2 | `10.0.2.0/24` |
+| Private subnet CIDR block in zone 1 | `10.0.11.0/24` |
+| Private subnet CIDR block in zone 2 | `10.0.12.0/24` |
+
+<Callout type="note">
+The wizard may suggest different CIDRs. Overwrite them: later chapters and the screenshots in your head will match these numbers.
+</Callout>
+</Step>
+
+<Step title="Choose the NAT gateway and endpoint options">
+| Field | Value |
+|---|---|
+| NAT gateways ($) | **In 1 AZ** |
+| VPC endpoints | **S3 Gateway** |
+| Enable DNS hostnames | ticked |
+| Enable DNS resolution | ticked |
+
+<Callout type="danger" title="The NAT gateway costs money every hour">
+One NAT gateway is the cheapest option that works, and it is still one of the biggest items on the bill (roughly US$1 to 1.5 per day plus data). Delete it when you finish. See the **Clean up** chapter.
+</Callout>
+
+The **S3 gateway endpoint** is free. It gives private subnets a direct path to S3, which the CI/CD guides use to download build artifacts without going through the NAT gateway.
+</Step>
+
+<Step title="Create it and wait">
+Check the preview diagram on the right: two public subnets, two private subnets, one internet gateway, one NAT gateway, one S3 endpoint. Choose **Create VPC**. The wizard shows each resource being created and ends with **View VPC**. Allow 2 to 3 minutes: the NAT gateway is last.
+
+<Result>Every line in the creation workflow has a green tick, and the **Name** of the VPC is `shortlink-vpc`.</Result>
+</Step>
+
+## Check the routes
+
+The wizard is reliable, but a wrong route is hard to spot later because nothing errors, things just time out. Spend two minutes checking.
+
+<Step title="Public route table">
+Open <Ui>VPC → Route tables</Ui>, select the route table whose name contains **public**, then open the **Routes** tab.
+
+| Destination | Target |
+|---|---|
+| `10.0.0.0/16` | local |
+| `0.0.0.0/0` | an **igw-…** (internet gateway) |
+
+Open the **Subnet associations** tab: it must list both public subnets.
+</Step>
+
+<Step title="Private route tables">
+There are two private route tables (one per zone). For **each**, open **Routes** and confirm:
+
+| Destination | Target |
+|---|---|
+| `10.0.0.0/16` | local |
+| `0.0.0.0/0` | a **nat-…** (NAT gateway) |
+| `pl-…` (a prefix list for S3) | a **vpce-…** (S3 gateway endpoint) |
+
+The `0.0.0.0/0 → nat-…` route is what lets the API instance run `apt` and `npm`. The `pl-… → vpce-…` route keeps S3 traffic inside AWS.
+</Step>
+
+<Step title="Verify from the command line">
+```bash title="List your VPC and subnets" env="laptop"
+aws ec2 describe-vpcs --region <AWS_REGION> \
+  --filters Name=tag:Name,Values=shortlink-vpc \
+  --query 'Vpcs[].{id:VpcId,cidr:CidrBlock}' --output table
+
+aws ec2 describe-subnets --region <AWS_REGION> \
+  --filters Name=tag:Name,Values='shortlink-*' \
+  --query 'Subnets[].{cidr:CidrBlock,az:AvailabilityZone,name:Tags[?Key==`Name`]|[0].Value}' --output table
+```
+
+<Result>One VPC with CIDR `10.0.0.0/16`, and four subnets with the four CIDRs from the table above.</Result>
+
+```bash title="Confirm the NAT gateway is available" env="laptop"
+aws ec2 describe-nat-gateways --region <AWS_REGION> \
+  --filter Name=state,Values=available \
+  --query 'NatGateways[].{id:NatGatewayId,state:State,subnet:SubnetId}' --output table
+```
+</Step>
+
+<Details title="The wizard failed halfway">
+- **Elastic IP limit exceeded:** the NAT gateway needs an Elastic IP and accounts default to five per Region. Release unused ones under <Ui>EC2 → Elastic IPs</Ui>, or ask to raise the quota.
+- **Leftovers after a failure:** delete the partially created VPC (<Ui>VPC → Your VPCs → Actions → Delete VPC</Ui> removes its subnets, route tables and gateways), release stray Elastic IPs, and run the wizard again.
+</Details>
+
+Next: [security groups](/guides/deployment/security-groups/).

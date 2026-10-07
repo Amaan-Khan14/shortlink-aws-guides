@@ -1,0 +1,96 @@
+---
+title: Create security groups
+description: Three chained firewalls so only the load balancer reaches the API and only the API reaches the database.
+minutes: 15
+---
+
+A **security group** is a stateful firewall attached to a resource. The trick in this design is that each group only accepts traffic from the **previous group**, not from an IP range. The internet can reach the load balancer; only the load balancer can reach the API; only the API can reach the database.
+
+```text
+Internet ──:80──► shortlink-alb-sg ──:3000──► shortlink-api-sg ──:5432──► shortlink-db-sg
+```
+
+Create them **in this order**, because each rule refers to the group before it, and the group has to exist before you can pick it.
+
+<Callout type="note" title="Do not touch the default security group">
+Your VPC has a security group called `default`. Ignore it and never attach it to these resources. The console sometimes pre-selects it; replace it with the right group each time.
+</Callout>
+
+## Create the three groups
+
+<Step title="Load balancer group: shortlink-alb-sg">
+Open <Ui>VPC → Security groups → Create security group</Ui> (or <Ui>EC2 → Security Groups</Ui>).
+
+| Field | Value |
+|---|---|
+| Security group name | `shortlink-alb-sg` |
+| Description | `Public HTTP to the load balancer` |
+| VPC | `shortlink-vpc` (**not** the default VPC) |
+
+**Inbound rules → Add rule:**
+
+| Type | Protocol | Port | Source |
+|---|---|---|---|
+| HTTP | TCP | 80 | Anywhere-IPv4 (`0.0.0.0/0`) |
+
+Leave **Outbound rules** at the default (all traffic). Choose **Create security group**.
+</Step>
+
+<Step title="API group: shortlink-api-sg">
+Create another group in `shortlink-vpc`:
+
+| Field | Value |
+|---|---|
+| Security group name | `shortlink-api-sg` |
+| Description | `API server, reachable only from the load balancer` |
+| VPC | `shortlink-vpc` |
+
+**Inbound rules → Add rule:**
+
+| Type | Protocol | Port | Source |
+|---|---|---|---|
+| Custom TCP | TCP | 3000 | **Custom** → start typing `shortlink-alb-sg` and pick the group |
+
+Leave outbound at the default. The instance needs outbound access for `apt`, `npm`, Systems Manager and the database.
+
+<Callout type="danger" title="Never use 0.0.0.0/0 for port 3000">
+Because the instance has no public IP, an open rule would not expose it directly today, but it is the wrong habit and it breaks the "only the load balancer" guarantee. If you copy this setup from another tutorial that says `0.0.0.0/0`, change it.
+</Callout>
+</Step>
+
+<Step title="Database group: shortlink-db-sg">
+| Field | Value |
+|---|---|
+| Security group name | `shortlink-db-sg` |
+| Description | `PostgreSQL, reachable only from the API` |
+| VPC | `shortlink-vpc` |
+
+**Inbound rules → Add rule:**
+
+| Type | Protocol | Port | Source |
+|---|---|---|---|
+| PostgreSQL | TCP | 5432 | **Custom** → `shortlink-api-sg` |
+
+Outbound can stay at the default.
+</Step>
+
+<Step title="Verify the rules">
+```bash title="Show every inbound rule" env="laptop"
+aws ec2 describe-security-groups --region <AWS_REGION> \
+  --filters Name=group-name,Values='shortlink-*' \
+  --query 'SecurityGroups[].{name:GroupName,id:GroupId,inbound:IpPermissions[].{port:FromPort,cidr:IpRanges[0].CidrIp,fromGroup:UserIdGroupPairs[0].GroupId}}' \
+  --output json
+```
+
+Check three things:
+
+- `shortlink-alb-sg`: port `80`, source CIDR `0.0.0.0/0`.
+- `shortlink-api-sg`: port `3000`, **`fromGroup`** is the ID of `shortlink-alb-sg`, and there is **no** CIDR.
+- `shortlink-db-sg`: port `5432`, `fromGroup` is the ID of `shortlink-api-sg`.
+</Step>
+
+<Details title="Why is a rule showing an ID like sg-0abc… instead of a name?">
+Rules that refer to another group always store its ID. The console shows the ID with the name next to it. Compare the IDs with the output of the command above.
+</Details>
+
+Next: [create the database](/guides/deployment/database/).
