@@ -1,0 +1,104 @@
+---
+title: Run the first release
+description: Start the pipeline, watch each stage, and prove the server now runs the CodeDeploy-managed version.
+minutes: 20
+---
+
+Everything is in place. Now run the pipeline end to end and learn where to look at each stage.
+
+## Start it
+
+<Step title="Release a change">
+Open <Ui>CodePipeline → Pipelines → shortlink-api-prod</Ui> and choose **Release change** (confirm **Release**). This runs the latest commit on `main`, whatever has or has not changed.
+
+If an earlier failed execution is on screen, you can instead choose **Retry stage** on the failed **Deploy** stage. Starting a fresh release is simpler and gives you a clean history.
+</Step>
+
+<Step title="Watch the stages">
+The three stage boxes turn blue (in progress) then green (succeeded). Choose **View details** in each action to open its logs.
+
+| Stage | What good looks like | Typical time |
+|---|---|---|
+| Source | Green quickly. The panel shows the commit ID and message | 10 to 30 s |
+| Build | CodeBuild phases `INSTALL`, `BUILD`, `UPLOAD_ARTIFACTS` all *Succeeded*. The log shows `Tests: 36 passed` | 1 to 3 min |
+| Deploy | CodeDeploy lifecycle events all *Succeeded* | 2 to 4 min |
+
+<Callout type="tip" title="Check the commit">
+In **Source** compare the commit ID with <Ui>GitHub → your fork → Commits</Ui>. If they differ, you released something other than what you expected.
+</Callout>
+</Step>
+
+<Step title="Follow the deployment in CodeDeploy">
+Open <Ui>CodeDeploy → Deployments</Ui> and select the newest deployment. Under **Deployment lifecycle events** you will see each event from the previous chapter turn green: `BlockTraffic`, `DownloadBundle`, `BeforeInstall`, `Install`, `AfterInstall`, `ApplicationStart`, `ValidateService`, `AllowTraffic`.
+
+While it runs, the load balancer returns **503** for a short time. That is the single-server limitation described in the overview.
+
+If an event fails, choose **View events** for that instance. It shows the script that ran, its exit code and the last lines of its output. Read that before changing anything.
+</Step>
+
+## Prove it worked
+
+<Step title="Check the pipeline, the deployment and the target">
+```bash title="Pipeline state" env="laptop"
+aws codepipeline get-pipeline-state --region <AWS_REGION> --name shortlink-api-prod \
+  --query 'stageStates[].{stage:stageName,status:latestExecution.status}' --output table
+
+aws deploy list-deployments --region <AWS_REGION> --application-name shortlink-api \
+  --deployment-group-name shortlink-api-prod --max-items 1 --query 'deployments[0]' --output text
+```
+
+Take the deployment ID from the second command and inspect it:
+
+```bash title="Deployment details" env="laptop"
+aws deploy get-deployment --region <AWS_REGION> --deployment-id <DEPLOYMENT_ID> \
+  --query 'deploymentInfo.{status:status,creator:creator,revision:revision.s3Location.key}' --output table
+```
+
+<Result>All three stages `Succeeded`, deployment `status: Succeeded` and `creator: CodeDeployGateway` (the pipeline started it).</Result>
+</Step>
+
+<Step title="Check the server is now running the managed copy">
+```bash title="Where does the service run from now?" env="ec2"
+systemctl cat shortlink-api | grep -E 'WorkingDirectory|ExecStart'
+ls -l /opt/shortlink/app | head
+sudo systemctl is-active shortlink-api
+curl -fsS http://127.0.0.1:3000/health
+```
+
+<Result>`WorkingDirectory=/opt/shortlink/app`, the folder contains `src`, `scripts`, `package.json`, the service is `active`, and `/health` says `"database":"up"`.</Result>
+</Step>
+
+<Step title="Check it from outside">
+```bash title="The target group and the public URL" env="laptop"
+aws elbv2 describe-target-health --region <AWS_REGION> \
+  --target-group-arn "$(aws elbv2 describe-target-groups --region <AWS_REGION> --names shortlink-app-tg --query 'TargetGroups[0].TargetGroupArn' --output text)" \
+  --query 'TargetHealthDescriptions[].{id:Target.Id,state:TargetHealth.State}' --output table
+curl -fsS http://<ALB_DNS>/health && echo
+```
+
+<Result>The target is `healthy` and the public health check returns `{"status":"ok","database":"up"}`. Open your website: **API online**, and the links you created earlier are still there (the database was not touched).</Result>
+</Step>
+
+<Step title="Tidy up the manual copy (optional)">
+The hand-installed checkout is no longer used. Removing it avoids editing the wrong files later.
+
+```bash title="Remove the old checkout" env="ec2"
+sudo rm -rf /opt/shortlink/repo
+```
+
+Keep `/etc/shortlink/shortlink.env` (still in use) and the saved unit `/etc/systemd/system/shortlink-api.service.before-codedeploy` (a harmless backup).
+</Step>
+
+<Details title="The first release failed">
+Read the failing step, not the whole log.
+
+- **Source failed:** the connection is not *Available*, or the pipeline's repository name has a typo.
+- **Build failed:** open the CodeBuild log. A failing test (`●` lines) means the code, not the pipeline.
+- **Deploy failed at DownloadBundle:** the server cannot read the bucket. Re-check `shortlink-pipeline-artifacts-read` and the bucket name in it.
+- **Deploy failed at BeforeInstall:** a script exited non-zero. The usual causes are no `shortlink-api` unit yet, a missing `/etc/shortlink/shortlink.env`, or a hook script without the executable bit.
+- **Deploy failed at ValidateService:** the new version started but cannot reach the database, or crashed. `sudo journalctl -u shortlink-api -n 80 --no-pager` shows why.
+
+After fixing the root cause, run **Retry stage → Retry failed actions** or **Release change**. The troubleshooting chapter has a longer table.
+</Details>
+
+Next: [ship a real change](/guides/backend-cicd/ship-a-change/).

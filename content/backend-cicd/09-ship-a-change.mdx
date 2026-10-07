@@ -1,0 +1,142 @@
+---
+title: Ship a change, and break one on purpose
+description: Make a code change, push it, and watch it reach the server. Then see a failing test stop a bad release.
+minutes: 25
+---
+
+Now the payoff. You will make a small API change, push it, and never touch the server. Then you will deliberately break a test to see the pipeline protect production.
+
+## Part 1: a change that ships
+
+The API's root route (`GET /`) currently returns a name and a status. You will add a version, and update the test that checks the exact response.
+
+<Step title="Create a branch">
+```bash title="Work on a branch, not on main" env="laptop"
+git switch main
+git pull origin main
+git switch -c add-api-version
+```
+
+Pushing a branch does **not** start the pipeline, because the trigger only listens to `main`. Only the merge will.
+</Step>
+
+<Step title="Change the code">
+Open `shortlink-api/src/app.js` and find the root route:
+
+```diff title="shortlink-api/src/app.js"
+   app.get('/', (_req, res) => {
+-    res.json({ name: 'shortlink-api', status: 'running' })
++    res.json({ name: 'shortlink-api', status: 'running', version: '1.1.0' })
+   })
+```
+</Step>
+
+<Step title="Update the test that describes the behaviour">
+Open `shortlink-api/tests/links.test.js`, find the `GET /` test, and change the expected value:
+
+```diff title="shortlink-api/tests/links.test.js"
+     expect(res.status).toBe(200)
+-    expect(res.body).toEqual({ name: 'shortlink-api', status: 'running' })
++    expect(res.body).toEqual({ name: 'shortlink-api', status: 'running', version: '1.1.0' })
+```
+
+`toEqual` compares the whole object, so a test that is not updated will fail. That is exactly the safety net you are about to rely on.
+</Step>
+
+<Step title="Run the tests locally">
+```bash title="Tests must pass before you push" env="laptop"
+npm --prefix shortlink-api test
+```
+
+<Result>`Tests: 36 passed, 36 total`</Result>
+</Step>
+
+<Step title="Commit and push the branch">
+```bash title="Commit your change" env="laptop"
+git add shortlink-api/src/app.js shortlink-api/tests/links.test.js
+git commit -m "feat(api): report version on the root route"
+git push -u origin add-api-version
+```
+
+Check the CodePipeline console: **no new execution**. Good.
+</Step>
+
+<Step title="Merge into main">
+Merge into your fork's `main`. The simplest way is locally:
+
+```bash title="Merge and push main" env="laptop"
+git switch main
+git merge --no-ff add-api-version -m "Merge add-api-version"
+git push origin main
+```
+
+<Callout type="warning" title="If you use a GitHub pull request, check the target">
+On a fork, GitHub's **Compare & pull request** button defaults to opening the PR against the **original** repository. Change the **base repository** to your own fork (<Var name="GITHUB_USER" />/<Var name="REPO_NAME" />) before you submit, or you will propose your change to the instructor instead of deploying it.
+</Callout>
+</Step>
+
+<Step title="Watch it deploy">
+Within about a minute **shortlink-api-prod** starts a new execution on its own. Source shows your merge commit. Wait for Deploy to finish, then:
+
+```bash title="The new version is live" env="laptop"
+curl -sS http://<ALB_DNS>/
+```
+
+```text env="output"
+{"name":"shortlink-api","status":"running","version":"1.1.0"}
+```
+
+<Result>The version appears in the response and you never opened a shell on the server.</Result>
+</Step>
+
+## Part 2: break the build on purpose
+
+A pipeline is only valuable if it stops bad code. Prove it does.
+
+<Step title="Change behaviour without updating the test">
+```bash title="A branch with a deliberately broken change" env="laptop"
+git switch -c break-on-purpose
+```
+
+In `shortlink-api/src/app.js` change the status text:
+
+```diff title="shortlink-api/src/app.js"
+-    res.json({ name: 'shortlink-api', status: 'running', version: '1.1.0' })
++    res.json({ name: 'shortlink-api', status: 'up', version: '1.1.0' })
+```
+
+Run `npm --prefix shortlink-api test` and watch the `GET /` test fail locally. Now push it anyway, straight to `main` for this experiment:
+
+```bash title="Push the broken change" env="laptop"
+git add shortlink-api/src/app.js
+git commit -m "chore: change status text (will fail tests)"
+git switch main
+git merge break-on-purpose
+git push origin main
+```
+</Step>
+
+<Step title="See what the pipeline does">
+Open the new execution. **Build** turns red, and in the CodeBuild log you see the failing test. **Deploy never starts.** Check production:
+
+```bash title="Production still serves the old version" env="laptop"
+curl -sS http://<ALB_DNS>/
+```
+
+The status is still `"running"`. The broken commit exists on GitHub but never reached your server.
+</Step>
+
+<Step title="Fix it by reverting">
+```bash title="Undo the bad commit and push" env="laptop"
+git revert --no-edit HEAD
+git push origin main
+```
+
+A new execution runs, the tests pass again, and the deployment succeeds. Reverting with Git is the safest way to undo, because it leaves a clear history and runs through the same pipeline.
+</Step>
+
+<Callout type="tip" title="Try the path filter">
+Edit only `README.md`, commit and push to `main`. No execution starts, because `README.md` does not match `shortlink-api/**`, `appspec.yml` or `deploy/**`. Then change a file under `shortlink-api/` and one does.
+</Callout>
+
+Next: [rollbacks and day-to-day operations](/guides/backend-cicd/rollback-and-operations/).

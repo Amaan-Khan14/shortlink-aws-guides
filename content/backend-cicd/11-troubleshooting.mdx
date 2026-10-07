@@ -1,0 +1,71 @@
+---
+title: Troubleshooting
+description: Errors you may meet while building and running the backend pipeline, what causes them and how to fix them.
+minutes: 15
+---
+
+The pipeline has five moving parts, so the first job is to work out **which stage** failed. Open <Ui>CodePipeline → shortlink-api-prod</Ui> and look for the red box.
+
+```bash title="Which stage and action failed, and why?" env="laptop"
+aws codepipeline get-pipeline-state --region <AWS_REGION> --name shortlink-api-prod \
+  --query 'stageStates[].{stage:stageName,actions:actionStates[].{action:actionName,status:latestExecution.status,error:latestExecution.errorDetails.message}}' \
+  --output json
+```
+
+## Connection and source
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Source cannot read the repo | The connection is **Pending**, or in another Region | Open it and finish **Update pending connection**. It must be **Available** in <Var name="AWS_REGION" /> |
+| Your fork is missing from the repository list | The GitHub App is not installed on it | GitHub → <Ui>Settings → Applications → AWS Connector for GitHub → Configure</Ui>, add the fork |
+| The pipeline does not start on push | The push was not to `main`, did not touch a filtered path, or you used a pull request trigger | Check the trigger filters, or use **Release change** |
+| The pipeline ran the **instructor's** code | The Source action points at `Amaan-Khan14/shortlink` instead of your fork | Edit the Source action's repository to <Var name="GITHUB_USER" />/<Var name="REPO_NAME" /> |
+| GitHub says you cannot install the app | You are installing on a repo you do not own | Fork the repository and install on the fork |
+
+## Build
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `codebuild:StartBuild` `AccessDenied` and **no CodeBuild log** | The pipeline role cannot start the project, so the failure happened in CodePipeline | Add `codebuild:StartBuild` and `BatchGetBuilds` for `shortlink-api-build` to the pipeline role |
+| `YAML_FILE_ERROR` or `stat deploy/buildspec-api.yml: no such file` | The buildspec path in the project is wrong, or the file is not on `main` | Set the buildspec to `deploy/buildspec-api.yml` and push the file |
+| `npm ci` fails: lockfile out of sync | `package.json` and `package-lock.json` disagree | Run `npm install` in `shortlink-api`, commit the lockfile |
+| A test fails | A real regression | Read the failing test, fix the code, push |
+| The Node version is wrong | An image that does not support `nodejs: 20` | Use the `amazonlinux-x86_64-standard` image (version 5.0 or newer) |
+| Source/artifact type error when changing the project | CodeBuild validates both types together | Set both to `CODEPIPELINE` (see the pipeline chapter) |
+
+## Deploy: before the scripts run
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `No instances found for deployment group` | Tag mismatch, instance stopped, or agent not running | Instance tag `Name=shortlink-api` exactly; instance running; `systemctl is-active codedeploy-agent` is `active` |
+| The agent never picks up the deployment | The agent cannot reach CodeDeploy | The private subnet needs the NAT route; check the agent log |
+| `DownloadBundle` fails with `Access Denied` | `shortlink-ec2-role` cannot read the artifact bucket | Add the inline policy, and check the bucket name has no typo |
+| `The overall deployment failed because too many individual instances failed deployment` | Generic wrapper message | Open **View events** on the instance. The real error is in the failed event |
+| `InvalidRoleException` / role cannot assume | The deployment group's service role is wrong | Use `shortlink-codedeploy-service-role` with `AWSCodeDeployRole` |
+| Stuck at `BlockTraffic` | The target is draining | Wait for the deregistration delay to pass |
+
+## Deploy: the hook scripts
+
+| Failed event | Cause | Fix |
+|---|---|---|
+| `ApplicationStop` | A script from the **previous** revision ran and failed | Make that behaviour harmless; the current appspec has no stop script |
+| `BeforeInstall`: `Unit shortlink-api.service not loaded` | The service was never created by hand | Create the systemd unit (guide 1, chapter 10) |
+| `BeforeInstall`: `test -s /etc/shortlink/shortlink.env` | The env file is missing or empty | Recreate it (guide 1, chapter 10) |
+| `BeforeInstall`: `Permission denied` / `script not found` | A hook is not executable, or `appspec.yml` is nested | `git ls-files -s deploy/hooks` must show `100755`, and `appspec.yml` must be at the ZIP root |
+| `AfterInstall` fails in `npm ci` | No outbound path to npm | NAT route, security group egress |
+| `AfterInstall` fails in `init-db.js` | The database is unreachable or the password is wrong | Same checks as guide 1: current RDS endpoint, `shortlink-db-sg` rule |
+| `ValidateService` fails | New version started but `/health` never says `database: up` | `sudo journalctl -u shortlink-api -n 80 --no-pager`, then `curl http://127.0.0.1:3000/health` |
+| `AllowTraffic` fails | Target group health check does not pass | Check the health check path `/health` and the `shortlink-api-sg` rule from the load balancer |
+
+## After the deploy
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| 503 for a minute, then fine | In-place deployment on one server | Expected. Add a second server for zero-downtime |
+| Old code still serving | The service still runs from `/opt/shortlink/repo` | `systemctl cat shortlink-api` must show `WorkingDirectory=/opt/shortlink/app`. If it does not, the `ApplicationStart` hook did not run; read its event |
+| Environment changes ignored | The API reads the file only at start | `sudo systemctl restart shortlink-api` |
+| Everything worked, then stopped | An old deployment rolled back, or the instance was replaced | Compare the deployed commit with `main`; re-run **Release change** |
+
+<Callout type="tip" title="How to ask for help well">
+Say **which stage failed**, paste the one-line error from the commands at the top of this page, and say what you already tried. Never paste secrets, tokens or the contents of `/etc/shortlink/shortlink.env`.
+</Callout>

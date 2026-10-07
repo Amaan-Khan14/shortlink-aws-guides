@@ -1,0 +1,106 @@
+---
+title: Rollbacks and day-to-day operations
+description: Undo a bad release, retry a failed one, find the right log, and plan the next improvements.
+minutes: 15
+---
+
+## How a bad release gets undone
+
+| Situation | What happens | What you do |
+|---|---|---|
+| A test fails in **Build** | Pipeline stops. Production untouched | Fix the code and push |
+| The new version crashes or **fails `ValidateService`** | CodeDeploy automatically rolls back to the last good revision | Read the failed event, fix, push again |
+| The release succeeds but behaves wrongly | Nothing is automatic | **Revert in Git** (best), or redeploy a known-good commit |
+| The **very first** deployment fails | There is no previous revision to restore | Use the manual checkout and saved unit (see below), fix, retry |
+
+<Callout type="note" title="Automatic rollback is not magic">
+It starts the *previous successful deployment* again as a new deployment. If the hooks themselves are broken, the rollback can fail for the same reason. Always check the final state with `/health` and the target group.
+</Callout>
+
+## Roll back on purpose
+
+<Step title="Option 1: revert in Git (recommended)">
+```bash title="Create a commit that undoes the bad one" env="laptop"
+git log --oneline -n 5
+git revert --no-edit <COMMIT_SHA>
+git push origin main
+```
+
+The pipeline tests the revert and deploys it like any other change. You keep an honest history of what happened.
+</Step>
+
+<Step title="Option 2: run the pipeline on a specific known-good commit">
+```bash title="Release an older commit through the same pipeline" env="laptop"
+aws codepipeline start-pipeline-execution --region <AWS_REGION> --name shortlink-api-prod \
+  --source-revisions actionName=Source,revisionType=COMMIT_ID,revisionValue=<COMMIT_SHA>
+```
+
+Use this when you need the old version back *right now* and will sort out the Git history afterwards. Remember that the next push to `main` will deploy whatever is at the tip of `main` again.
+</Step>
+
+<Step title="Option 3: redeploy a previous CodeDeploy deployment">
+Open <Ui>CodeDeploy → Deployments</Ui>, select an earlier **Succeeded** deployment and use its **Retry deployment** (or **Copy deployment**) action to deploy the same revision again. This skips the build and tests, so use it only for a revision you already trust.
+</Step>
+
+<Step title="If the first release failed and the service is down">
+Restore the hand-made setup you backed up in guide 1:
+
+```bash title="Put the original unit back" env="ec2"
+sudo cp -p /etc/systemd/system/shortlink-api.service.before-codedeploy /etc/systemd/system/shortlink-api.service
+sudo systemctl daemon-reload
+sudo systemctl restart shortlink-api
+curl -fsS http://127.0.0.1:3000/health
+```
+
+This only works if `/opt/shortlink/repo` still exists, which is why the first-release chapter told you to delete it only after success.
+</Step>
+
+## Retry without starting over
+
+When one action in a stage fails and you have fixed the cause, retry just that action so the successful ones are reused:
+
+<Ui>CodePipeline → shortlink-api-prod → (failed stage) → Retry stage → Retry failed actions</Ui>
+
+```bash title="The same thing from the CLI" env="laptop"
+aws codepipeline retry-stage-execution --region <AWS_REGION> \
+  --pipeline-name shortlink-api-prod --stage-name Deploy \
+  --pipeline-execution-id <EXECUTION_ID> --retry-mode FAILED_ACTIONS
+```
+
+If you changed the *structure* of the pipeline after the failure, start a new execution instead.
+
+## Where to look when something fails
+
+| Symptom | First place to look |
+|---|---|
+| Pipeline did not start after a push | The push touched no file matching the filters, the push was to another branch, or the connection is not *Available* |
+| Red **Source** | <Ui>Developer Tools → Connections</Ui> status; repository and branch names in the Source action |
+| Red **Build** | The CodeBuild log (**View details** → **Logs**). Tests, `npm ci` or the buildspec |
+| Red **Deploy** | <Ui>CodeDeploy → Deployments → the deployment → View events</Ui>, then the script's output |
+| Deployment stuck on **BlockTraffic** | The target group is draining. It waits for the deregistration delay (30 s here, 300 s by default) |
+| Deployed, but the app is down | `sudo journalctl -u shortlink-api -n 80 --no-pager` on the server, and `curl http://127.0.0.1:3000/health` |
+| Agent never receives the deployment | `sudo systemctl status codedeploy-agent` and `/var/log/aws/codedeploy-agent/codedeploy-agent.log` |
+
+```bash title="Everything about the last execution in one command" env="laptop"
+aws codepipeline get-pipeline-state --region <AWS_REGION> --name shortlink-api-prod
+```
+
+## Good habits
+
+- **Merge, do not push straight to `main`.** Use short-lived branches and pull requests (into your own fork) so a typo does not deploy.
+- **Turn on branch protection** for `main` in GitHub (<Ui>Settings → Branches</Ui>) to require pull requests.
+- **Add a notification.** In the pipeline choose <Ui>Notify → Create notification rule</Ui> and send *Pipeline execution failed* to an SNS topic with your email.
+- **Never put secrets in the repository or the buildspec.** The database password lives only in `/etc/shortlink/shortlink.env` on the server.
+- **Watch the cost.** CodePipeline and CodeBuild are cheap for a workshop, but the infrastructure from guide 1 is not. Run the clean-up chapter when you finish.
+
+## What to improve next
+
+| Today | Better |
+|---|---|
+| One server, in-place, ~1 minute of 503s per release | Two servers in an Auto Scaling group with `CodeDeployDefault.OneAtATime` so one is always serving |
+| Tests only | Add a lint step, a dependency audit and a smoke test after deploy |
+| Manual approval never required | Add a **manual approval** action before Deploy for production |
+| Database schema applied on every deploy | Introduce versioned migrations for destructive changes |
+| Separate API and web pipelines | One pipeline with both paths (see guide 3, *Operations*) |
+
+Next: [troubleshooting](/guides/backend-cicd/troubleshooting/).
