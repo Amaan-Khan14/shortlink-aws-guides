@@ -1,0 +1,74 @@
+---
+title: Overview and prerequisites
+description: How a push to your fork becomes a running release on EC2, and what must already exist.
+minutes: 10
+---
+
+In guide 1 you deployed the API by hand. Here you make AWS do it: every push to `main` on **your fork** is tested, packaged and installed on the EC2 server automatically, and rolled back if the new version does not start.
+
+<Diagram name="pipeline-api" />
+
+## What happens on every push
+
+1. You push a commit to `main` on your GitHub fork.
+2. **CodePipeline** notices (through the GitHub connection) and starts an execution.
+3. **Source stage:** it downloads the commit as a ZIP into a private S3 *artifact bucket*.
+4. **Build stage:** **CodeBuild** unpacks it, runs `npm ci` and the 36 API tests. If any test fails the pipeline stops here, and nothing reaches the server. If they pass, it packages `appspec.yml`, the hook scripts and `shortlink-api/` into a new ZIP.
+5. **Deploy stage:** **CodeDeploy** tells the **agent** on your EC2 server to download that ZIP, then runs the lifecycle scripts: stop the service, copy files, install dependencies, start the service, check `/health`.
+6. If the health check fails, CodeDeploy **rolls back** to the previous version.
+
+## The pieces
+
+| Piece | What it is | What you create in this guide |
+|---|---|---|
+| GitHub connection | An AWS-owned GitHub App you authorize on your fork | `shortlink-github` |
+| CodePipeline | Orchestrator: runs stages in order | `shortlink-api-prod` |
+| CodeBuild | Runs a build container and the `buildspec` | `shortlink-api-build` |
+| CodeDeploy application and group | Defines *what* to deploy and *which servers* | `shortlink-api` / `shortlink-api-prod` |
+| CodeDeploy agent | A small program on the EC2 server that does the work | Installed on `shortlink-api` |
+| IAM roles | Each service acts as a role. Permissions are per role | See the permissions chapter |
+| Artifact bucket | Private S3 bucket for ZIPs between stages | Created by CodePipeline |
+
+<Callout type="problem" title="This only works from your own fork">
+The GitHub connection must be installed on a repository **you own**, and the pipeline starts from commits **you push**. With the original repository you can do neither. See the *Fork the repository* chapter in guide 1 for the full explanation. Everything below uses <Var name="GITHUB_USER" />/<Var name="REPO_NAME" />.
+</Callout>
+
+## Before you begin
+
+You need the working deployment from guide 1, at least chapters 1 to 10. Check each item, because the pipeline depends on all of them.
+
+- [ ] The API answers through the load balancer: `curl http://<ALB_DNS>/health` returns `{"status":"ok","database":"up"}`.
+- [ ] The EC2 instance has the **`Name` tag `shortlink-api`**.
+- [ ] The instance is **Online** in Systems Manager and you can open a Session Manager shell.
+- [ ] The service `shortlink-api` runs under systemd and the private env file `/etc/shortlink/shortlink.env` exists.
+- [ ] Your fork has `appspec.yml` at its root and a `deploy/` folder.
+- [ ] You can push to your fork (`git push` works).
+
+```bash title="Quick check of the first four" env="laptop"
+curl -fsS http://<ALB_DNS>/health && echo
+aws ec2 describe-instances --region <AWS_REGION> \
+  --filters Name=tag:Name,Values=shortlink-api Name=instance-state-name,Values=running \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+aws ssm describe-instance-information --region <AWS_REGION> \
+  --query 'InstanceInformationList[].{id:InstanceId,ping:PingStatus}' --output table
+```
+
+## Names used in this guide
+
+Use them exactly. IAM policies later refer to them.
+
+| Resource | Name |
+|---|---|
+| GitHub connection | `shortlink-github` |
+| Pipeline | `shortlink-api-prod` |
+| CodeBuild project | `shortlink-api-build` |
+| CodeDeploy application | `shortlink-api` |
+| CodeDeploy deployment group | `shortlink-api-prod` |
+| CodeDeploy service role | `shortlink-codedeploy-service-role` |
+| Pipeline artifacts | `SourceArtifact`, `BuildArtifact` |
+
+## An honest note about downtime
+
+This is an **in-place** deployment on **one** server. While CodeDeploy stops the old version and starts the new one, the load balancer has no healthy target and visitors get a **503 for roughly 30 to 90 seconds**. That is normal here and it is why chapter 10 mentions a second server and rolling deployments as the next step.
+
+Next: [understand the repository files](/guides/backend-cicd/repo-files/).

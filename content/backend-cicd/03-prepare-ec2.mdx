@@ -1,0 +1,80 @@
+---
+title: Prepare the EC2 server
+description: Install the CodeDeploy agent and confirm the server is ready to receive releases.
+minutes: 15
+---
+
+CodeDeploy does not log in to your server. Instead a small **agent** program runs on it, asks CodeDeploy "is there a deployment for me?", downloads the bundle and runs your hook scripts. You install the agent once.
+
+Run everything in this chapter **on the EC2 instance**: <Ui>EC2 → Instances → shortlink-api → Connect → Session Manager</Ui>.
+
+## Install the agent
+
+<Step title="Install the prerequisites">
+```bash title="Make sure wget is present" env="ec2"
+sudo apt-get update
+sudo apt-get install -y wget
+```
+</Step>
+
+<Step title="Download and run the installer for your Region">
+The installer is served from a regional S3 bucket. The URL contains your Region twice.
+
+```bash title="Install the CodeDeploy agent" env="ec2"
+cd /tmp
+wget -O codedeploy-install https://aws-codedeploy-<AWS_REGION>.s3.<AWS_REGION>.amazonaws.com/latestv2/install
+chmod +x ./codedeploy-install
+sudo ./codedeploy-install auto
+```
+
+<Callout type="note" title="Why /tmp and not your home folder?">
+Session Manager logs you in as `ssm-user`, and `cd /home/ubuntu` is not accessible to that user. `/tmp` works for everyone.
+</Callout>
+
+<Details title="The installer complains about Ruby">
+Older agent versions needed Ruby. The `latestv2` installer normally does not. If you see `ruby: command not found`, install it and run the installer again:
+
+```bash title="Install Ruby, then retry" env="ec2"
+sudo apt-get install -y ruby-full
+sudo ./codedeploy-install auto
+```
+</Details>
+</Step>
+
+<Step title="Check that the agent is running">
+```bash title="Agent status" env="ec2"
+sudo systemctl is-active codedeploy-agent
+```
+
+<Result>`active`</Result>
+
+<Callout type="tip" title="Seeing 'deactivating (stop)' or 'activating' right after install?">
+The installer restarts the service at the end. Wait 10 seconds and run the command again. Only worry if it is still not `active` after a minute, then read the logs:
+
+```bash title="If it will not start" env="ec2"
+sudo journalctl -u codedeploy-agent -n 50 --no-pager
+sudo tail -n 50 /var/log/aws/codedeploy-agent/codedeploy-agent.log
+```
+</Callout>
+</Step>
+
+## Check what the hooks rely on
+
+<Step title="The service and the env file exist">
+```bash title="Pre-flight checks for the hook scripts" env="ec2"
+systemctl is-enabled shortlink-api
+sudo -u ubuntu test -r /etc/shortlink/shortlink.env && echo "env file readable by ubuntu"
+test -d /opt/shortlink && echo "/opt/shortlink exists"
+command -v node
+```
+
+<Result>`enabled`, then `env file readable by ubuntu`, `/opt/shortlink exists`, and `/usr/bin/node`.</Result>
+
+If any of these fail, go back to the *Install and start the API* chapter in guide 1. The very first release would otherwise fail in `BeforeInstall`.
+</Step>
+
+<Callout type="note" title="Keep the manual checkout for now">
+The folder `/opt/shortlink/repo` and the systemd unit you created by hand are your fallback if the first automated release goes wrong. After the first release succeeds, the service runs from `/opt/shortlink/app`, and you may delete `/opt/shortlink/repo` to avoid confusion.
+</Callout>
+
+Next: [create the CodeDeploy application](/guides/backend-cicd/codedeploy/).

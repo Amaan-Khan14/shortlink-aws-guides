@@ -1,0 +1,231 @@
+---
+title: The deployment files in your fork
+description: Read appspec.yml, the buildspec and the four hook scripts so nothing in the pipeline is magic.
+minutes: 15
+---
+
+The pipeline is driven by files that already live in your fork. You do not need to change them for the backend, but you should know what each does, because when a deployment fails the error message names one of them.
+
+```text title="Files used by the backend pipeline"
+appspec.yml                    tells CodeDeploy what to copy and which scripts to run
+deploy/buildspec-api.yml       tells CodeBuild how to test and package
+deploy/hooks/before_install.sh stop the service, check the env file
+deploy/hooks/after_install.sh  install dependencies, apply the schema
+deploy/hooks/start.sh          write the systemd unit and restart the service
+deploy/hooks/validate.sh       wait for /health to report the database is up
+```
+
+## buildspec-api.yml: test and package
+
+```yaml title="deploy/buildspec-api.yml"
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+  build:
+    commands:
+      - npm --prefix shortlink-api ci
+      - npm --prefix shortlink-api test
+artifacts:
+  files:
+    - appspec.yml
+    - deploy/hooks/**/*
+    - shortlink-api/**/*
+  exclude-paths:
+    - shortlink-api/node_modules/**/*
+    - shortlink-api/.env
+    - shortlink-api/.env.*
+```
+
+| Line | Meaning |
+|---|---|
+| `runtime-versions: nodejs: 20` | Ask the CodeBuild image for Node.js 20. You do not pick a runtime in the console, the file does |
+| `npm ci` then `npm test` | Install exactly the locked dependencies, then run the tests. **A failing test fails the build** and the pipeline never reaches deploy |
+| `artifacts.files` | What goes into the ZIP that CodeDeploy receives. `appspec.yml` must be at the **ZIP root** |
+| `exclude-paths` | Never ship `node_modules` (the server installs its own) or any `.env` file |
+
+## appspec.yml: what CodeDeploy does on the server
+
+```yaml title="appspec.yml"
+version: 0.0
+os: linux
+files:
+  - source: shortlink-api
+    destination: /opt/shortlink/app
+file_exists_behavior: OVERWRITE
+permissions:
+  - object: /opt/shortlink/app
+    owner: ubuntu
+    group: ubuntu
+    type:
+      - file
+      - directory
+hooks:
+  BeforeInstall:
+    - location: deploy/hooks/before_install.sh
+      timeout: 60
+      runas: root
+  AfterInstall:
+    - location: deploy/hooks/after_install.sh
+      timeout: 300
+      runas: root
+  ApplicationStart:
+    - location: deploy/hooks/start.sh
+      timeout: 60
+      runas: root
+  ValidateService:
+    - location: deploy/hooks/validate.sh
+      timeout: 120
+      runas: root
+```
+
+- `files` copies the `shortlink-api` folder from the bundle to `/opt/shortlink/app`. Note that this is a **different folder** from the manual checkout in `/opt/shortlink/repo`.
+- `OVERWRITE` lets a new release replace files from the last one.
+- `permissions` makes `ubuntu` own the copied files so the service (which runs as `ubuntu`) can read them.
+- Each **hook** is a script run at one moment of the deployment, with a timeout. A non-zero exit code fails the deployment.
+
+## The hook scripts
+
+<Tabs>
+<Tab label="before_install.sh">
+
+```bash title="deploy/hooks/before_install.sh"
+#!/usr/bin/env bash
+set -euo pipefail
+test -s /etc/shortlink/shortlink.env
+sudo -u ubuntu test -r /etc/shortlink/shortlink.env
+systemctl stop shortlink-api
+install -d -m 755 -o ubuntu -g ubuntu /opt/shortlink/app
+```
+
+Fails fast if the private env file is missing or unreadable, stops the running service, and makes sure the target folder exists.
+
+</Tab>
+<Tab label="after_install.sh">
+
+```bash title="deploy/hooks/after_install.sh"
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/shortlink/app
+sudo -u ubuntu npm ci --omit=dev
+sudo -u ubuntu /usr/bin/node --env-file=/etc/shortlink/shortlink.env scripts/init-db.js
+```
+
+Runs after the files are copied. Installs production dependencies and applies the (idempotent) database schema, so schema changes ship with the code.
+
+</Tab>
+<Tab label="start.sh">
+
+```bash title="deploy/hooks/start.sh"
+#!/usr/bin/env bash
+set -euo pipefail
+if ! test -f /etc/systemd/system/shortlink-api.service.before-codedeploy; then
+  cp -p /etc/systemd/system/shortlink-api.service /etc/systemd/system/shortlink-api.service.before-codedeploy
+fi
+cat > /etc/systemd/system/shortlink-api.service <<'UNIT'
+[Unit]
+Description=ShortLink API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/shortlink/app
+ExecStart=/usr/bin/node --env-file=/etc/shortlink/shortlink.env src/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable shortlink-api
+systemctl restart shortlink-api
+```
+
+Saves a one-time backup of the hand-made unit, then rewrites the unit to run from `/opt/shortlink/app`, and restarts the service.
+
+</Tab>
+<Tab label="validate.sh">
+
+```bash title="deploy/hooks/validate.sh"
+#!/usr/bin/env bash
+set -euo pipefail
+for attempt in $(seq 1 12); do
+  if curl --fail --silent --show-error --max-time 3 \
+      http://127.0.0.1:3000/health | grep -q '"database":"up"'; then
+    exit 0
+  fi
+  sleep 5
+done
+exit 1
+```
+
+Polls `/health` for up to a minute and only succeeds when the database reports `up`. If it never does, the deployment fails and CodeDeploy rolls back.
+
+</Tab>
+</Tabs>
+
+<Callout type="note" title="Two assumptions baked into the scripts">
+`before_install.sh` stops a service called `shortlink-api` and `start.sh` copies its unit file. Both **fail on the very first deployment if you never created the service by hand**. That is why guide 1 had you bootstrap the server first. Likewise `/etc/shortlink/shortlink.env` must already exist.
+</Callout>
+
+## The order things run in
+
+With a load balancer attached, CodeDeploy wraps your hooks with traffic control:
+
+| Order | Event | Who runs it |
+|---|---|---|
+| 1 | BeforeBlockTraffic, **BlockTraffic**, AfterBlockTraffic | CodeDeploy takes the server out of the target group and waits for connections to drain (your 30-second deregistration delay) |
+| 2 | ApplicationStop | A script from the **previous** revision. This app has none |
+| 3 | DownloadBundle | The agent fetches the ZIP from the artifact bucket |
+| 4 | **BeforeInstall** | `before_install.sh` |
+| 5 | Install | CodeDeploy copies the files |
+| 6 | **AfterInstall** | `after_install.sh` |
+| 7 | **ApplicationStart** | `start.sh` |
+| 8 | **ValidateService** | `validate.sh` |
+| 9 | BeforeAllowTraffic, **AllowTraffic**, AfterAllowTraffic | CodeDeploy registers the server again; the target group health check must pass |
+
+## Check your fork
+
+<Step title="Confirm the files are where the pipeline expects them">
+From the root of your clone:
+
+```bash title="List the deployment files and their Git modes" env="laptop"
+git ls-files -s appspec.yml deploy/buildspec-api.yml deploy/hooks
+```
+
+```text env="output"
+100644 … 0	appspec.yml
+100644 … 0	deploy/buildspec-api.yml
+100755 … 0	deploy/hooks/after_install.sh
+100755 … 0	deploy/hooks/before_install.sh
+100755 … 0	deploy/hooks/start.sh
+100755 … 0	deploy/hooks/validate.sh
+```
+
+`appspec.yml` must be at the **repository root**, and each `.sh` file must be `100755` (executable).
+</Step>
+
+<Step title="Fix a missing executable bit (only if you saw 100644 on a hook)">
+```bash title="Make the hooks executable and commit" env="laptop"
+git update-index --chmod=+x deploy/hooks/before_install.sh deploy/hooks/after_install.sh deploy/hooks/start.sh deploy/hooks/validate.sh
+git commit -m "fix: make deployment hooks executable"
+git push origin main
+```
+
+Do not push yet if you have not finished creating the pipeline; a push now is harmless but will not start a build until the pipeline exists.
+</Step>
+
+<Step title="Make sure your fork is up to date on GitHub">
+```bash title="Nothing uncommitted, nothing unpushed" env="laptop"
+git status --short
+git fetch origin
+git log --oneline origin/main..HEAD
+```
+
+Both commands should print nothing. CodePipeline reads GitHub, **not** the files on your laptop. Anything not pushed does not exist as far as AWS is concerned.
+</Step>
+
+Next: [prepare the EC2 server](/guides/backend-cicd/prepare-ec2/).
