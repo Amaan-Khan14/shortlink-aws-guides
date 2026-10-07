@@ -12,6 +12,8 @@ import GithubSlugger from "github-slugger";
 const root = path.join(process.cwd(), "content");
 const errors = [];
 let chapters = 0;
+const known = new Set(); // "/guides/<guide>/<slug>/"
+const links = []; // [where, href]
 
 for (const guide of fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())) {
   const seen = new Set();
@@ -26,6 +28,7 @@ for (const guide of fs.readdirSync(root, { withFileTypes: true }).filter((d) => 
     }
     if (seen.has(m[2])) errors.push(`${where}: duplicate slug "${m[2]}" in guide`);
     seen.add(m[2]);
+    known.add(`/guides/${guide.name}/${m[2]}/`);
 
     const { data, content } = matter(fs.readFileSync(path.join(root, guide.name, file), "utf8"));
     for (const key of ["title", "description", "minutes"]) {
@@ -56,9 +59,16 @@ for (const guide of fs.readdirSync(root, { withFileTypes: true }).filter((d) => 
       if (/<Step[\s>]/.test(line)) open++;
       if (/<\/Step>/.test(line)) close++;
     });
+    for (const l of content.matchAll(/\]\((\/guides\/[^)#\s]+)(#[^)\s]*)?\)/g)) links.push([where, l[1]]);
     if (fenceMarks % 2) errors.push(`${where}: unbalanced code fence`);
     if (open !== close) errors.push(`${where}: ${open} <Step> opened but ${close} closed`);
   }
+}
+
+for (const [where, href] of links) {
+  const normalized = href.endsWith("/") ? href : `${href}/`;
+  const guideIndex = /^\/guides\/[^/]+\/$/.test(normalized);
+  if (!known.has(normalized) && !guideIndex) errors.push(`${where}: broken internal link ${href}`);
 }
 
 if (errors.length) {
