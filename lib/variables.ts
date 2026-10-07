@@ -127,9 +127,13 @@ export function sanitizeValue(input: string): string {
 export const SENTINEL_RE = /ZZ_([A-Z0-9_]+)_ZZ/g;
 export const toSentinel = (name: string) => `ZZ_${name}_ZZ`;
 
-/** Swap <NAME> for a sentinel that survives syntax highlighting as one token. */
+/**
+ * Swap every <NAME> for a sentinel that survives syntax highlighting as one token.
+ * Known names (ALL_KEYS) are filled from "My values"; others (<COMMIT_SHA>, <DEPLOYMENT_ID>)
+ * stay highlighted as things the reader must replace by hand.
+ */
 export function protectPlaceholders(code: string): string {
-  return code.replace(/<([A-Z][A-Z0-9_]*)>/g, (m, name: string) => (ALL_KEYS.includes(name) ? toSentinel(name) : m));
+  return code.replace(/<([A-Z][A-Z0-9_]*)>/g, (_m, name: string) => toSentinel(name));
 }
 
 export function escapeHtml(s: string): string {

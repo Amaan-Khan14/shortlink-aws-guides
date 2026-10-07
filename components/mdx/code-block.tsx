@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { Check, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
-import { SENTINEL_RE, escapeHtml } from "@/lib/variables";
+import { ALL_KEYS, SENTINEL_RE, escapeHtml } from "@/lib/variables";
 import { useValues } from "../values-provider";
 
 export type CodeEnv = "laptop" | "ec2" | "console" | "output" | "file";
@@ -86,7 +86,14 @@ export function CodeBlock({ html, code, lang, title, env }: Props) {
       <div className="codeblock-body" dangerouslySetInnerHTML={{ __html: shownHtml }} />
       {missing.length > 0 && showCopy && (
         <p className="codeblock-note">
-          Replace <code>{missing.map((m) => `<${m}>`).join(" ")}</code>, or fill it in once under <strong>My values</strong> at the top of the page.
+          Replace <code>{missing.map((m) => `<${m}>`).join(" ")}</code> with your own value
+          {missing.some((m) => ALL_KEYS.includes(m)) && (
+            <>
+              {" "}
+              (or fill in the known ones once under <strong>My values</strong> at the top of the page)
+            </>
+          )}
+          .
         </p>
       )}
       <span className="sr-only" aria-live="polite">
