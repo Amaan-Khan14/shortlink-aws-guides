@@ -1,16 +1,19 @@
 "use client";
 
 import clsx from "clsx";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { NavGuide } from "@/lib/nav";
+import { normalizePath } from "@/lib/progress";
+import { useProgress } from "./use-progress";
 
 export function SidebarNav({ guides, onNavigate }: { guides: NavGuide[]; onNavigate?: () => void }) {
   const pathname = usePathname() ?? "";
   const activeGuide = guides.find((g) => pathname.startsWith(`/guides/${g.slug}/`))?.slug;
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const done = useProgress();
 
   return (
     <nav aria-label="Guides" className="text-sm">
@@ -46,7 +49,10 @@ export function SidebarNav({ guides, onNavigate }: { guides: NavGuide[]; onNavig
                             active ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-surface hover:text-text",
                           )}
                         >
-                          {c.title}
+                          <span className="flex items-start justify-between gap-2">
+                            <span>{c.title}</span>
+                            {done.has(normalizePath(c.href)) && <Check size={14} className="mt-0.5 shrink-0 text-[var(--tip)]" aria-label="Completed" />}
+                          </span>
                         </Link>
                       </li>
                     );

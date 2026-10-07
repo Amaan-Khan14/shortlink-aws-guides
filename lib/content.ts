@@ -14,6 +14,7 @@ export type ChapterMeta = {
   description: string;
   minutes: number;
   href: string;
+  file: string;
 };
 
 export type Chapter = ChapterMeta & { source: string };
@@ -33,6 +34,7 @@ function parseFile(guide: string, file: string): Chapter {
     description: String(data.description ?? ""),
     minutes: Number(data.minutes ?? 0),
     href: `/guides/${guide}/${m[2]}/`,
+    file,
     source: content,
   };
 }
