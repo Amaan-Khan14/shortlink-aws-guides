@@ -64,7 +64,6 @@ export function Figure({ title, caption, viewBox, children, markerId = "dg-arrow
   return (
     <figure className="diagram">
       <svg viewBox={viewBox} role="img" aria-label={title} className={className ? `dg ${className}` : "dg"}>
-        <title>{title}</title>
         <Defs markerId={markerId} />
         {children}
       </svg>

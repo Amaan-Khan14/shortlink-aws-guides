@@ -546,6 +546,10 @@ html.theme-ready body {
   gap: 0.25rem;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs-list::-webkit-scrollbar {
+  display: none;
 }
 .tabs-tab {
   padding: 0.45rem 0.8rem;
