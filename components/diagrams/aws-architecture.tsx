@@ -61,7 +61,7 @@ export function AwsArchitectureDiagram() {
       <Arrow markerId={M} d="M80 216 L80 60 L488 60" label="1  website files (HTTP)" lx={100} ly={50} anchor="start" />
       <Arrow markerId={M} d="M104 240 L206 240" label="2  HTTP :80" lx={155} ly={230} />
       <Arrow markerId={M} d="M254 240 L376 240" />
-      <Arrow markerId={M} d="M400 342 L400 422" label="3  :3000" lx={386} ly={388} anchor="end" anchor="start" />
+      <Arrow markerId={M} d="M400 342 L400 422" label="3  :3000" lx={386} ly={388} anchor="end" />
       <Arrow markerId={M} d="M495 466 L555 466" label="4  :5432" lx={525} ly={456} />
 
       {/* Supporting paths (dashed) */}
