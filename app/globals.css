@@ -38,31 +38,32 @@
 }
 
 .dark {
-  --bg: #0e1116;
-  --surface: #151a21;
-  --surface-2: #1d232c;
-  --border: #272e38;
-  --text: #e7eaee;
-  --muted: #9aa5b3;
+  /* Neutral charcoal: no blue tint in the greys, so code and diagrams stand out. */
+  --bg: #121212;
+  --surface: #1a1a1a;
+  --surface-2: #242424;
+  --border: #2e2e2e;
+  --text: #ececec;
+  --muted: #a1a1a1;
   --accent: #7ab0ff;
-  --accent-fg: #0b1220;
-  --accent-soft: #15233b;
+  --accent-fg: #0a0a0a;
+  --accent-soft: #1b2638;
 
-  --code-bg: #12161c;
-  --code-border: #272e38;
-  --code-fg: #e6edf3;
-  --inline-code-bg: #1d232c;
+  --code-bg: #0c0c0c;
+  --code-border: #2e2e2e;
+  --code-fg: #e6e6e6;
+  --inline-code-bg: #262626;
 
   --note: #7ab0ff;
-  --note-soft: #14223a;
+  --note-soft: #172131;
   --tip: #5fd08a;
-  --tip-soft: #11261b;
+  --tip-soft: #14231a;
   --warn: #f0b45a;
-  --warn-soft: #2a2010;
+  --warn-soft: #2a2112;
   --danger: #ff8d82;
-  --danger-soft: #2c1513;
+  --danger-soft: #2b1816;
 
-  --ph-bg: #3a2f08;
+  --ph-bg: #3a3009;
   --ph-fg: #ffd978;
 
   color-scheme: dark;
