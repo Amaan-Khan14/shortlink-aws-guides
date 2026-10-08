@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
-function Defs() {
+function Defs({ markerId }: { markerId: string }) {
   return (
     <defs>
-      <marker id="dg-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <marker id={markerId} viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M 0 0 L 10 5 L 0 10 z" className="dg-arrowhead" />
       </marker>
     </defs>
@@ -47,10 +47,10 @@ export function Zone({ x, y, w, h, label, tone = "default" }: { x: number; y: nu
   );
 }
 
-export function Arrow({ d, dashed, label, lx, ly, anchor = "middle" }: { d: string; dashed?: boolean; label?: string; lx?: number; ly?: number; anchor?: "start" | "middle" | "end" }) {
+export function Arrow({ d, dashed, label, lx, ly, anchor = "middle", markerId = "dg-arrow" }: { d: string; dashed?: boolean; label?: string; lx?: number; ly?: number; anchor?: "start" | "middle" | "end"; markerId?: string }) {
   return (
     <g>
-      <path d={d} className={dashed ? "dg-line dg-dashed" : "dg-line"} markerEnd="url(#dg-arrow)" fill="none" />
+      <path d={d} className={dashed ? "dg-line dg-dashed" : "dg-line"} markerEnd={`url(#${markerId})`} fill="none" />
       {label && lx !== undefined && ly !== undefined && (
         <text x={lx} y={ly} textAnchor={anchor} className="dg-label">
           {label}
@@ -60,12 +60,12 @@ export function Arrow({ d, dashed, label, lx, ly, anchor = "middle" }: { d: stri
   );
 }
 
-export function Figure({ title, caption, viewBox, children }: { title: string; caption: string; viewBox: string; children: ReactNode }) {
+export function Figure({ title, caption, viewBox, children, markerId = "dg-arrow", className }: { title: string; caption: string; viewBox: string; children: ReactNode; markerId?: string; className?: string }) {
   return (
     <figure className="diagram">
-      <svg viewBox={viewBox} role="img" aria-label={title} className="dg">
+      <svg viewBox={viewBox} role="img" aria-label={title} className={className ? `dg ${className}` : "dg"}>
         <title>{title}</title>
-        <Defs />
+        <Defs markerId={markerId} />
         {children}
       </svg>
       <figcaption>{caption}</figcaption>

@@ -1,7 +1,7 @@
 import { ArrowRight, Clipboard, GitFork, ListChecks, MoonStar, Search, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { SiteShell } from "@/components/site-shell";
-import { ArchitectureDiagram } from "@/components/diagrams/architecture";
+import { ArchitectureTabs } from "@/components/diagrams/architecture-tabs";
 import { Callout } from "@/components/mdx/callout";
 import { getChapters } from "@/lib/content";
 import { GUIDES, SITE } from "@/lib/guides";
@@ -76,7 +76,7 @@ export default function Home() {
           </h2>
           <p className="mt-2 max-w-2xl text-muted">A React frontend on S3, a Node.js API on a private EC2 instance behind a load balancer, and PostgreSQL on RDS, all inside your own VPC.</p>
           <div className="mt-4">
-            <ArchitectureDiagram />
+            <ArchitectureTabs />
           </div>
         </section>
 

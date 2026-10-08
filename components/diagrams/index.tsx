@@ -1,8 +1,8 @@
-import { ArchitectureDiagram } from "./architecture";
+import { ArchitectureTabs } from "./architecture-tabs";
 import { PipelineDiagram } from "./pipeline";
 
 const DIAGRAMS = {
-  architecture: () => <ArchitectureDiagram />,
+  architecture: () => <ArchitectureTabs />,
   "pipeline-api": () => <PipelineDiagram variant="api" />,
   "pipeline-web": () => <PipelineDiagram variant="web" />,
   "pipeline-full": () => <PipelineDiagram variant="full" />,

@@ -777,3 +777,79 @@ svg.dg {
     font-size: 0.97rem;
   }
 }
+
+/* AWS architecture view */
+svg.dg.dg-wide {
+  min-width: 720px;
+}
+.diagram:has(.dg-wide) {
+  overflow-x: auto;
+}
+.dg .dg-lg.dg-title {
+  font-size: 17px;
+}
+.dg .dg-lg.dg-sub {
+  font-size: 13.5px;
+}
+.dg .dg-cloud rect {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+.dg .dg-vpc rect {
+  fill: color-mix(in srgb, #8c4fff 5%, transparent);
+  stroke: #8c4fff;
+  stroke-width: 2;
+}
+.dg .dg-az rect {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-dasharray: 6 5;
+}
+.dg .dg-public rect {
+  fill: color-mix(in srgb, #7aa116 9%, transparent);
+  stroke: #7aa116;
+  stroke-width: 1.6;
+}
+.dg .dg-private rect {
+  fill: color-mix(in srgb, #00a4a6 9%, transparent);
+  stroke: #00a4a6;
+  stroke-width: 1.6;
+}
+.dg .dg-sg rect {
+  fill: none;
+  stroke: #dd344c;
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+}
+.dg .dg-sg text {
+  fill: #dd344c;
+  font-size: 12px;
+  font-weight: 600;
+}
+.dark .dg .dg-sg text,
+.dark .dg .dg-sg rect {
+  fill: #ff8d9a;
+  stroke: #ff8d9a;
+}
+.dark .dg .dg-sg rect {
+  fill: none;
+}
+.dg .dg-legend text {
+  fill: var(--muted);
+  font-size: 12.5px;
+}
+.dg .dg-public-key {
+  fill: color-mix(in srgb, #7aa116 20%, transparent);
+  stroke: #7aa116;
+}
+.dg .dg-private-key {
+  fill: color-mix(in srgb, #00a4a6 20%, transparent);
+  stroke: #00a4a6;
+}
+.dg .dg-sg-key {
+  fill: none;
+  stroke: #dd344c;
+  stroke-dasharray: 3 2;
+}
