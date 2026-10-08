@@ -60,8 +60,8 @@ export function AwsArchitectureDiagram() {
       {/* Boundaries */}
       <Box x={112} y={10} w={958} h={712} className="dg-cloud" label="AWS Cloud · one Region" lx={128} ly={34} />
       <Box x={270} y={130} w={785} h={575} className="dg-vpc" label="VPC · shortlink-vpc · 10.0.0.0/16" lx={286} ly={152} />
-      <Box x={295} y={168} w={350} h={520} className="dg-az" label="Availability Zone a" lx={309} ly={188} />
-      <Box x={680} y={168} w={350} h={520} className="dg-az" label="Availability Zone b" lx={694} ly={188} />
+      <Box x={295} y={168} w={350} h={500} className="dg-az" label="Availability Zone a" lx={309} ly={188} />
+      <Box x={680} y={168} w={350} h={500} className="dg-az" label="Availability Zone b" lx={694} ly={188} />
       <Box x={310} y={200} w={320} h={172} className="dg-public" label="Public subnet · 10.0.1.0/24" lx={324} ly={360} />
       <Box x={695} y={200} w={320} h={172} className="dg-public" label="Public subnet · 10.0.2.0/24" lx={709} ly={360} />
       <Box x={310} y={402} w={320} h={248} className="dg-private" label="Private subnet · 10.0.11.0/24" lx={324} ly={640} />
