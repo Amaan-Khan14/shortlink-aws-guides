@@ -47,26 +47,27 @@ export function AwsArchitectureDiagram() {
   return (
     <Figure
       title="ShortLink on AWS: resources, subnets and security groups"
-      viewBox="-20 0 1040 640"
+      viewBox="-20 0 1040 672"
       markerId={M}
       className="dg-wide"
       caption="Only the load balancer faces the internet. The API server and the database live in private subnets, and each security group (red dashed) accepts traffic only from the tier in front of it."
     >
       {/* Network boundaries */}
-      <Zone x={230} y={110} w={770} h={510} className="dg-vpc" label="VPC · 10.0.0.0/16 · two Availability Zones" />
+      <Zone x={230} y={110} w={770} h={545} className="dg-vpc" label="VPC · 10.0.0.0/16 · two Availability Zones" />
       <Zone x={255} y={150} w={720} h={210} className="dg-public" label="Public subnets" />
-      <Zone x={255} y={385} w={720} h={235} className="dg-private" label="Private subnets" />
+      <Zone x={255} y={385} w={720} h={250} className="dg-private" label="Private subnets" />
 
       {/* Request path */}
-      <Arrow markerId={M} d="M80 216 L80 60 L488 60" label="1  website files (HTTP)" lx={100} ly={50} anchor="start" />
+      <Arrow markerId={M} d="M80 216 L80 48 L488 48" label="1  website files (HTTP)" lx={100} ly={38} anchor="start" />
       <Arrow markerId={M} d="M104 240 L206 240" label="2  HTTP :80" lx={155} ly={230} />
       <Arrow markerId={M} d="M254 240 L376 240" />
-      <Arrow markerId={M} d="M400 342 L400 422" label="3  :3000" lx={386} ly={388} anchor="end" />
+      <Arrow markerId={M} d="M400 342 L400 422" label="3  :3000" lx={386} ly={376} anchor="end" />
       <Arrow markerId={M} d="M495 466 L555 466" label="4  :5432" lx={525} ly={456} />
 
       {/* Supporting paths (dashed) */}
       <Arrow markerId={M} dashed d="M455 422 L455 372 L650 372 L650 314" label="installs and updates" lx={662} ly={350} anchor="start" />
       <Arrow markerId={M} dashed d="M104 466 L305 466" label="shell, no SSH" lx={180} ly={456} />
+      <Arrow markerId={M} dashed d="M400 566 L400 600 L870 600 L870 538" label="downloads from S3" lx={635} ly={592} />
 
       {/* Security groups */}
       <SecurityGroup cx={400} top={200} name="shortlink-alb-sg" />
@@ -75,7 +76,7 @@ export function AwsArchitectureDiagram() {
 
       {/* Services */}
       <Service kind="users" cx={80} cy={240} title="Users" sub="browser" />
-      <Service kind="s3" cx={520} cy={60} title="S3 static website" sub="React app" />
+      <Service kind="s3" cx={520} cy={48} title="S3 static website" />
       <Service kind="igw" cx={230} cy={240} title="Internet" sub="gateway" />
       <Service kind="elb" cx={400} cy={240} title="Load balancer" sub="HTTP :80" />
       <Service kind="nat" cx={650} cy={240} title="NAT gateway" sub="outbound only" />
@@ -86,12 +87,12 @@ export function AwsArchitectureDiagram() {
 
       {/* Legend */}
       <g className="dg-legend dg-lg">
-        <rect x="-10" y="560" width="14" height="14" rx="3" className="dg-public-key" />
-        <text x="12" y="572">Public subnet</text>
-        <rect x="-10" y="584" width="14" height="14" rx="3" className="dg-private-key" />
-        <text x="12" y="596">Private subnet</text>
-        <rect x="-10" y="608" width="14" height="14" rx="3" className="dg-sg-key" />
-        <text x="12" y="620">Security group</text>
+        <rect x="-10" y="580" width="14" height="14" rx="3" className="dg-public-key" />
+        <text x="12" y="592">Public subnet</text>
+        <rect x="-10" y="604" width="14" height="14" rx="3" className="dg-private-key" />
+        <text x="12" y="616">Private subnet</text>
+        <rect x="-10" y="628" width="14" height="14" rx="3" className="dg-sg-key" />
+        <text x="12" y="640">Security group</text>
       </g>
     </Figure>
   );
