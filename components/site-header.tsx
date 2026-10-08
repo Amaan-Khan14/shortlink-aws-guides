@@ -1,9 +1,10 @@
 "use client";
 
-import { Layers, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { NavGuide } from "@/lib/nav";
+import { LogoMark } from "./logo";
 import { SidebarNav } from "./sidebar-nav";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -43,9 +44,7 @@ export function SiteHeader({ guides, repo, actions }: { guides: NavGuide[]; repo
           </button>
 
           <Link href="/" className="mr-2 flex items-center gap-2 font-semibold tracking-tight">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-accent-fg">
-              <Layers size={16} aria-hidden />
-            </span>
+            <LogoMark />
             <span className="hidden sm:inline">ShortLink on AWS</span>
           </Link>
 
