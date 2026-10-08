@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { CornerDownLeft, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchDoc } from "@/lib/search-index";
 
@@ -122,7 +123,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
     } else if (e.key === "Enter" && hits[cursor]) go(hits[cursor]);
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh]" role="dialog" aria-modal="true" aria-label="Search" onKeyDown={onKeyDown}>
       <button type="button" className="absolute inset-0 bg-black/50" aria-label="Close search" onClick={onClose} />
       <div className="relative w-full max-w-xl overflow-hidden rounded-xl border border-border bg-bg shadow-2xl">
@@ -136,7 +137,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
               setCursor(0);
             }}
             placeholder="Search commands, errors, services…"
-            className="h-12 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
+            className="input-bare h-12 flex-1 bg-transparent text-base placeholder:text-muted"
             aria-label="Search query"
             spellCheck={false}
           />
@@ -171,6 +172,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
           </ul>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

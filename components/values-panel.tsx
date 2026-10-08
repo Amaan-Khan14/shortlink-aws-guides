@@ -2,6 +2,7 @@
 
 import { SlidersHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { VARIABLES } from "@/lib/variables";
 import { useValues } from "./values-provider";
 
@@ -47,7 +48,7 @@ function ValuesDialog({ onClose, resolvedWebUrl, resolvedApiUrl }: { onClose: ()
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="values-title">
       <button type="button" className="absolute inset-0 bg-black/50" aria-label="Close" onClick={onClose} />
       <div className="absolute inset-y-0 right-0 flex w-[26rem] max-w-full flex-col border-l border-border bg-bg shadow-xl">
@@ -104,6 +105,7 @@ function ValuesDialog({ onClose, resolvedWebUrl, resolvedApiUrl }: { onClose: ()
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

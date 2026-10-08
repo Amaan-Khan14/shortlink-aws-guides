@@ -3,6 +3,7 @@
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { NavGuide } from "@/lib/nav";
 import { LogoMark } from "./logo";
 import { SidebarNav } from "./sidebar-nav";
@@ -76,7 +77,8 @@ export function SiteHeader({ guides, repo, actions }: { guides: NavGuide[]; repo
         </div>
       </header>
 
-      {drawer && (
+      {drawer &&
+        createPortal(
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
           <button type="button" className="absolute inset-0 bg-black/50" aria-label="Close navigation" onClick={() => setDrawer(false)} />
           <div className="absolute inset-y-0 left-0 flex w-[19rem] max-w-[85vw] flex-col border-r border-border bg-bg p-4 shadow-xl">
@@ -95,7 +97,8 @@ export function SiteHeader({ guides, repo, actions }: { guides: NavGuide[]; repo
               <SidebarNav guides={guides} onNavigate={() => setDrawer(false)} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

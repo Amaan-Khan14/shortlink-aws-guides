@@ -857,3 +857,11 @@ svg.dg.dg-wide {
   stroke: #dd344c;
   stroke-dasharray: 3 2;
 }
+
+/* Search box: the dialog itself shows focus, so no extra ring around the input. */
+.input-bare,
+.input-bare:focus,
+.input-bare:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
