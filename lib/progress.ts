@@ -54,14 +54,4 @@ export function setDone(key: string, done: boolean) {
   listeners.forEach((l) => l());
 }
 
-export function clearAll() {
-  cache = new Set();
-  try {
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  listeners.forEach((l) => l());
-}
-
 export const normalizePath = (p: string) => p.replace(/\/$/, "");

@@ -19,7 +19,6 @@
 
   --code-bg: #f6f8fa;
   --code-border: #e1e4e9;
-  --code-fg: #24292f;
   --inline-code-bg: #eef1f5;
 
   --note: #2158d6;
@@ -51,7 +50,6 @@
 
   --code-bg: #0c0c0c;
   --code-border: #2e2e2e;
-  --code-fg: #e6e6e6;
   --inline-code-bg: #262626;
 
   --note: #7ab0ff;
@@ -111,8 +109,7 @@ body {
 }
 
 /* Smooth theme switching without animating on first paint */
-html.theme-ready body,
-html.theme-ready .themed {
+html.theme-ready body {
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 

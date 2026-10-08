@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export function Defs() {
+function Defs() {
   return (
     <defs>
       <marker id="dg-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

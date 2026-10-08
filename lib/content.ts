@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import GithubSlugger from "github-slugger";
-import { GUIDES, getGuideMeta } from "./guides";
+import { GUIDES } from "./guides";
 
 const CONTENT_DIR = path.join(process.cwd(), "content");
 
@@ -114,5 +114,3 @@ export function readingMinutes(source: string): number {
   const words = source.replace(/```[\s\S]*?```/g, " ").split(/\s+/).length;
   return Math.max(1, Math.round(words / 200));
 }
-
-export { getGuideMeta };

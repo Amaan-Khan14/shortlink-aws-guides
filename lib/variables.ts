@@ -79,7 +79,7 @@ export const VARIABLES: VariableDef[] = [
 ];
 
 /** Names that are computed from other values and cannot be typed in. */
-export const DERIVED_KEYS = ["API_URL", "WEB_URL", "AZ_A", "AZ_B", "SUGGESTED_WEB_BUCKET"] as const;
+const DERIVED_KEYS = ["API_URL", "WEB_URL", "AZ_A", "AZ_B", "SUGGESTED_WEB_BUCKET"] as const;
 
 export const ALL_KEYS: string[] = [...VARIABLES.map((v) => v.key), ...DERIVED_KEYS];
 
@@ -125,7 +125,7 @@ export function sanitizeValue(input: string): string {
 }
 
 export const SENTINEL_RE = /ZZ_([A-Z0-9_]+)_ZZ/g;
-export const toSentinel = (name: string) => `ZZ_${name}_ZZ`;
+const toSentinel = (name: string) => `ZZ_${name}_ZZ`;
 
 /**
  * Swap every <NAME> for a sentinel that survives syntax highlighting as one token.
